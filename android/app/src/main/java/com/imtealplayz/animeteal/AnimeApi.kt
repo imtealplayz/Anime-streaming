@@ -243,10 +243,21 @@ class AnimeApi {
         }.distinctBy { it.provider }
     }
 
-    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+    /**
+     * Resolve with the backend automatic provider fallback chain.
+     * This avoids /servers discovery followed by serial requests to every provider.
+     */
+    suspend fun sourceAuto(episodeId: String, category: String): StreamSource =
+        resolveStream(episodeId, null, category)
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource =
+        resolveStream(episodeId, provider, category)
+
+    private suspend fun resolveStream(episodeId: String, provider: String?, category: String): StreamSource {
         val (id, ep) = episodeKey(episodeId)
         val request = JSONObject().put("animeId", id).put("episode", ep)
-            .put("provider", provider).put("lang", category).put("quality", "auto")
+            .put("lang", category).put("quality", "auto")
+        if (!provider.isNullOrBlank()) request.put("provider", provider)
         val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
         val sources = data.optJSONArray("sources") ?: JSONArray()
         val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
@@ -256,7 +267,7 @@ class AnimeApi {
             u.isNotBlank() && verdict != "dead" &&
                 (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
                     u.contains(".m3u8", true) || u.contains(".mp4", true))
-        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+        } ?: throw IOException("No playable HLS or MP4 source was returned by the available providers.")
 
         val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
         data.optJSONObject("headers")?.let { h ->
@@ -265,13 +276,18 @@ class AnimeApi {
         val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
         val subtitles = buildList {
             for (i in 0 until subArray.length()) {
-                val s = subArray.optJSONObject(i) ?: continue
-                val u = text(s, "url", "file")
-                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+                val item = subArray.optJSONObject(i) ?: continue
+                val u = text(item, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(item, "lang", "label").ifBlank { "Subtitle" }, u))
             }
         }
         val streamUrl = text(chosen, "url")
-        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
-            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+        return StreamSource(
+            streamUrl,
+            text(chosen, "quality").ifBlank { "Auto" },
+            headers,
+            subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" },
+        )
     }
 }
