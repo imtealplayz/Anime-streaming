@@ -360,7 +360,7 @@ const VideoPlayerSection = () => {
             title={`AnimeTeal ${fallbackLabel} video player`}
             width="100%"
             height="100%"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+            sandbox="allow-scripts allow-same-origin allow-presentation"
             allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
             referrerPolicy="strict-origin-when-cross-origin"
             allowFullScreen
