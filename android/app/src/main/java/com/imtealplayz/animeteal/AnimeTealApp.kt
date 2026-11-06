@@ -215,7 +215,10 @@ fun AnimeTealApp() {
                     }
                 }
                 val stream = resolved ?: throw (lastError ?: IllegalStateException("No playable source was returned."))
-                library.saveProgress(anime, episode, 0L)
+                val savedPositionMs = history.firstOrNull {
+                    it.anime.id == anime.id && it.episode.id == episode.id
+                }?.positionMs ?: 0L
+                library.saveProgress(anime, episode, savedPositionMs)
                 history.clear()
                 history.addAll(library.history())
                 playerState = Triple(anime, episode, stream)
@@ -318,7 +321,7 @@ fun AnimeTealApp() {
                                     favorites = favorites,
                                     history = history,
                                     onAnimeClick = { selectedAnime = it },
-                                    onResume = { selectedAnime = it.anime },
+                                    onResume = { startEpisode(it.anime, it.episode) },
                                 )
                                 MainTab.SETTINGS -> SettingsScreen(
                                     currentBase = apiBase,
