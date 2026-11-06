@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,8 +59,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
@@ -381,6 +380,8 @@ fun NativePlayerScreen(
             interactionTick++
         }
     }
+    var videoWidthPx by remember { mutableIntStateOf(0) }
+    val latestVideoWidth = rememberUpdatedState(videoWidthPx)
     val latestDoubleTap = rememberUpdatedState<(Float, Float) -> Unit> { x, width ->
         if (!controlsLocked) {
             seekBy(if (x < width / 2f) -10_000L else 10_000L)
@@ -396,19 +397,11 @@ fun NativePlayerScreen(
                 }
 
                 override fun onDoubleTap(event: MotionEvent): Boolean {
-                    // A double tap is consumed here; the view's width is supplied
-                    // from its touch listener so left/right seeking is deterministic.
+                    latestDoubleTap.value(event.x, latestVideoWidth.value.toFloat())
                     return true
                 }
             }
         )
-    }
-
-    // A separate double-tap detector supplies the actual touched view width.
-    // GestureDetector's callbacks above handle single taps without exposing the
-    // native player controls underneath the AnimeTeal overlay.
-    val latestSeekOnVideo = rememberUpdatedState<(Float, Float) -> Unit> { x, width ->
-        latestDoubleTap.value(x, width)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -428,13 +421,7 @@ fun NativePlayerScreen(
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         keepScreenOn = true
                         setOnTouchListener { view, event ->
-                            if (event.action == MotionEvent.ACTION_UP && event.eventTime - event.downTime < 280L) {
-                                // Single-tap toggling is delayed by GestureDetector
-                                // so a double tap never flashes the controls.
-                            }
-                            if (event.action == MotionEvent.ACTION_UP) {
-                                latestSeekOnVideo.value(event.x, view.width.toFloat())
-                            }
+                            if (videoWidthPx != view.width) videoWidthPx = view.width
                             gestureDetector.onTouchEvent(event)
                             true
                         }
