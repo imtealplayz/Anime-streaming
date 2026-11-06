@@ -19,6 +19,16 @@ import { useGetAllEpisodes } from "@/query/get-all-episodes";
 import type { IEpisodeSource } from "@/types/episodes";
 import { useGetSourceAvailable } from "@/query/get-source-available";
 
+type FallbackLanguagePool = {
+  episodeData: IEpisodeSource;
+  provider: string;
+};
+
+type FallbackLanguagePools = {
+  sub: FallbackLanguagePool | null;
+  dub: FallbackLanguagePool | null;
+};
+
 const VideoPlayerSection = () => {
   const searchParams = useSearchParams();
   const animeIdParam = searchParams.get("anime") || "";
@@ -56,13 +66,18 @@ const VideoPlayerSection = () => {
   const { data: episodeData, isLoading: isLoadingData } =
     useGetEpisodeData(activeEpisodeId, !isPrimaryDisabled && !useFallback);
 
+  const isFallbackActive =
+    isSourceAvailable === false ||
+    useFallback ||
+    (!isLoadingData && (!episodeData || !episodeData.sources?.length));
+
   const [autoSkip, setAutoSkip] = useState<boolean>(true);
   const [preferredCategory, setPreferredCategory] = useState<"sub" | "dub">("sub");
 
-  const [anirakuFallbackData, setAnirakuFallbackData] = useState<IEpisodeSource | null>(null);
+  const [anirakuFallbackPools, setAnirakuFallbackPools] =
+    useState<FallbackLanguagePools>({ sub: null, dub: null });
   const [anirakuFallbackLoading, setAnirakuFallbackLoading] = useState(false);
   const [anirakuFallbackError, setAnirakuFallbackError] = useState("");
-  const [anirakuFallbackProvider, setAnirakuFallbackProvider] = useState("Aniraku");
   const [anirakuRetryKey, setAnirakuRetryKey] = useState(0);
 
   useEffect(() => {
@@ -92,17 +107,22 @@ const VideoPlayerSection = () => {
   const currentEpNumber =
     allEpisodesData?.episodes?.find((e) => e.episodeId === activeEpisodeId)?.number || 1;
 
-  // Check sub/dub availability for this episode
-  const hasSub = providerNames.some(
-    (p) => (rawProviders[p]?.episodes?.sub?.length || 0) > 0,
-  );
-  const hasDub = providerNames.some(
-    (p) => (rawProviders[p]?.episodes?.dub?.length || 0) > 0,
-  );
+  // In fallback mode, language availability comes from Aniraku's actual
+  // per-language server discovery, not the legacy provider metadata.
+  const hasSub = isFallbackActive
+    ? Boolean(anirakuFallbackPools.sub)
+    : providerNames.some((p) => (rawProviders[p]?.episodes?.sub?.length || 0) > 0);
+  const hasDub = isFallbackActive
+    ? Boolean(anirakuFallbackPools.dub)
+    : providerNames.some((p) => (rawProviders[p]?.episodes?.dub?.length || 0) > 0);
 
   const handleCategoryChange = (cat: "sub" | "dub") => {
     setPreferredCategory(cat);
     localStorage.setItem("preferredCategory", cat);
+
+    // In fallback mode, switching language selects the already-discovered
+    // Aniraku pool and must not change the legacy episode ID.
+    if (isFallbackActive) return;
 
     // Switch active episode to the first available server of that category for current episode
     if (providerNames.length > 0) {
@@ -119,7 +139,7 @@ const VideoPlayerSection = () => {
 
   // Synchronize activeEpisodeId category with preferredCategory ("sub" or "dub")
   useEffect(() => {
-    if (!providerNames.length || !allEpisodesData?.rawResponse?.providers) return;
+    if (isFallbackActive || !providerNames.length || !allEpisodesData?.rawResponse?.providers) return;
 
     const cleanParts = activeEpisodeId.replace(/^\//, "").split("/");
     const activeCat = cleanParts[3] === "dub" ? "dub" : "sub";
@@ -143,12 +163,8 @@ const VideoPlayerSection = () => {
     activeEpisodeId,
     setSelectedEpisode,
     allEpisodesData,
+    isFallbackActive,
   ]);
-
-  const isFallbackActive =
-    isSourceAvailable === false ||
-    useFallback ||
-    (!isLoadingData && (!episodeData || !episodeData.sources?.length));
 
   const handleProviderSelect = (pName: string, category: "sub" | "dub") => {
     setPreferredCategory(category);
@@ -162,13 +178,21 @@ const VideoPlayerSection = () => {
   };
 
   // Cleanly extract active provider and category regardless of leading slash e.g. "watch/kiwi/178005/sub/slug"
-  const cleanParts = activeEpisodeId.replace(/^\//, "").split("/");
+  const cleanParts = activeEpisodeId.replace(/^\\//, "").split("/");
   const currentProviderName = cleanParts[1] || providerNames[0] || "kiwi";
-  const activeCategory = cleanParts[3] === "dub" ? "dub" : preferredCategory;
+  const activeCategory = isFallbackActive
+    ? preferredCategory
+    : cleanParts[3] === "dub"
+      ? "dub"
+      : preferredCategory;
+
+  const activeFallbackPool = anirakuFallbackPools[activeCategory];
+  const anirakuFallbackData = activeFallbackPool?.episodeData ?? null;
+  const anirakuFallbackProvider = activeFallbackPool?.provider ?? "Aniraku";
 
   useEffect(() => {
     if (!isFallbackActive) {
-      setAnirakuFallbackData(null);
+      setAnirakuFallbackPools({ sub: null, dub: null });
       setAnirakuFallbackError("");
       setAnirakuFallbackLoading(false);
       return;
@@ -177,6 +201,7 @@ const VideoPlayerSection = () => {
     const animeId = Number(animeIdParam);
     const episode = Number(currentEpNumber);
     if (!Number.isInteger(animeId) || animeId <= 0 || !Number.isInteger(episode) || episode <= 0) {
+      setAnirakuFallbackPools({ sub: null, dub: null });
       setAnirakuFallbackLoading(false);
       setAnirakuFallbackError("This episode is missing a valid AniList ID or episode number.");
       return;
@@ -184,63 +209,101 @@ const VideoPlayerSection = () => {
 
     const controller = new AbortController();
     let isCurrent = true;
-    setAnirakuFallbackData(null);
+    setAnirakuFallbackPools({ sub: null, dub: null });
     setAnirakuFallbackError("");
     setAnirakuFallbackLoading(true);
 
-    const params = new URLSearchParams({
-      animeId: String(animeId),
-      episode: String(episode),
-      lang: activeCategory,
-    });
+    const discoverLanguage = async (lang: "sub" | "dub") => {
+      try {
+        const params = new URLSearchParams({
+          animeId: String(animeId),
+          episode: String(episode),
+          lang,
+        });
+        const response = await fetch("/api/v1/servers?" + params.toString(), {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
 
-    fetch("/api/v1/servers?" + params.toString(), {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload?.error || "Stream discovery returned HTTP " + response.status + ".");
+        const rawBody = await response.text();
+        let payload: any;
+        try {
+          payload = JSON.parse(rawBody);
+        } catch {
+          throw new Error(`Aniraku returned a non-JSON response for ${lang.toUpperCase()}.`);
         }
-        return Array.isArray(payload) ? payload : [];
-      })
-      .then((servers: any[]) => {
-        const candidates = servers.flatMap((server) =>
+
+        if (!response.ok) {
+          throw new Error(
+            payload?.error ||
+              `${lang.toUpperCase()} source discovery returned HTTP ${response.status}.`,
+          );
+        }
+        if (!Array.isArray(payload)) {
+          throw new Error(`Aniraku returned an invalid ${lang.toUpperCase()} server list.`);
+        }
+
+        const candidates = payload.flatMap((server: any) =>
           (Array.isArray(server?.sources) ? server.sources : []).map((source: any) => ({
             server,
             source,
           })),
         );
 
-        const selected = candidates.find(({ source }) => {
+        const playableCandidates = candidates.filter(({ source }: any) => {
           const type = String(source?.type || "").toLowerCase();
           const verdict = String(source?.verification || "").toLowerCase();
           return (
             typeof source?.url === "string" &&
-            source.url.startsWith("https://") &&
+            /^https?:\\/\\//i.test(source.url) &&
             (type === "hls" || type === "m3u8") &&
             verdict !== "dead" &&
             verdict !== "embed"
           );
         });
 
+        // Prefer a playable source that also supplies captions, while
+        // preserving provider order when no captioned source exists.
+        const selected =
+          playableCandidates.find(
+            ({ source }: any) =>
+              Array.isArray(source?.subtitles) && source.subtitles.length > 0,
+          ) || playableCandidates[0];
+
         if (!selected) {
-          throw new Error("Aniraku did not return a direct HLS stream for this episode. No third-party redirect player was loaded.");
+          return {
+            pool: null as FallbackLanguagePool | null,
+            error: `No direct HLS ${lang.toUpperCase()} source was returned for this episode.`,
+          };
         }
 
-        const subtitles = (Array.isArray(selected.source.subtitles) ? selected.source.subtitles : [])
-          .filter((track: any) => typeof track?.url === "string" && track.url.startsWith("https://"))
+        const subtitles = (
+          Array.isArray(selected.source.subtitles) ? selected.source.subtitles : []
+        )
+          .filter(
+            (track: any) =>
+              typeof track?.url === "string" && /^https?:\\/\\//i.test(track.url),
+          )
           .map((track: any) => ({
-            lang: track.label || track.lang || "Subtitle",
+            lang: String(track.lang || track.label || "Unknown"),
+            label: String(track.label || track.lang || "Subtitle"),
             url: track.url,
           }));
 
+        const providerHeaders = selected.server?.headers &&
+          typeof selected.server.headers === "object"
+          ? Object.fromEntries(
+              Object.entries(selected.server.headers).filter(
+                ([, value]) => typeof value === "string",
+              ),
+            ) as Record<string, string>
+          : {};
+        const referer = providerHeaders.Referer || providerHeaders.referer || "";
+
         const episodeData: IEpisodeSource = {
-          headers: {
-            Referer: selected.server?.headers?.Referer || selected.server?.headers?.referer || "",
-          },
+          headers: { Referer: referer },
+          requestHeaders: providerHeaders,
           subtitles,
           intro: { start: 0, end: 0 },
           outro: { start: 0, end: 0 },
@@ -249,22 +312,68 @@ const VideoPlayerSection = () => {
           malID: 0,
         };
 
-        if (!isCurrent) return;
-        setAnirakuFallbackProvider(selected.server?.name || selected.server?.provider || "Aniraku");
-        setAnirakuFallbackData(episodeData);
-        setAnirakuFallbackLoading(false);
-      })
-      .catch((error) => {
+        return {
+          pool: {
+            episodeData,
+            provider: selected.server?.name || selected.server?.provider || "Aniraku",
+          } as FallbackLanguagePool,
+          error: null as string | null,
+        };
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        return {
+          pool: null as FallbackLanguagePool | null,
+          error: error instanceof Error
+            ? error.message
+            : `Could not discover ${lang.toUpperCase()} sources.`,
+        };
+      }
+    };
+
+    Promise.all([discoverLanguage("sub"), discoverLanguage("dub")]).then(
+      ([subResult, dubResult]) => {
         if (!isCurrent || controller.signal.aborted) return;
-        setAnirakuFallbackError(error instanceof Error ? error.message : "Could not find a direct stream.");
+
+        setAnirakuFallbackPools({
+          sub: subResult.pool,
+          dub: dubResult.pool,
+        });
+
+        const errors = [
+          !subResult.pool ? subResult.error : null,
+          !dubResult.pool ? dubResult.error : null,
+        ].filter(Boolean);
+        setAnirakuFallbackError(
+          !subResult.pool && !dubResult.pool ? errors.join(" ") : "",
+        );
         setAnirakuFallbackLoading(false);
-      });
+      },
+    );
 
     return () => {
       isCurrent = false;
       controller.abort();
     };
-  }, [isFallbackActive, animeIdParam, currentEpNumber, activeCategory, anirakuRetryKey]);
+  }, [isFallbackActive, animeIdParam, currentEpNumber, anirakuRetryKey]);
+
+  // If the saved language is unavailable for this episode but the other
+  // language has a playable pool, switch automatically.
+  useEffect(() => {
+    if (!isFallbackActive || anirakuFallbackLoading) return;
+    const otherCategory = preferredCategory === "sub" ? "dub" : "sub";
+    if (
+      !anirakuFallbackPools[preferredCategory] &&
+      anirakuFallbackPools[otherCategory]
+    ) {
+      setPreferredCategory(otherCategory);
+      localStorage.setItem("preferredCategory", otherCategory);
+    }
+  }, [
+    isFallbackActive,
+    anirakuFallbackLoading,
+    anirakuFallbackPools,
+    preferredCategory,
+  ]);
 
 
   if (!activeEpisodeId || isLoadingData) {
@@ -317,21 +426,30 @@ const VideoPlayerSection = () => {
     return (
       <div className="flex flex-col gap-4 w-full">
         <AnimeTealPlayer
-          key={anirakuFallbackData.sources[0]?.url}
+          key={`${activeCategory}-${anirakuFallbackData.sources[0]?.url}`}
           episodeInfo={anirakuFallbackData}
           serversData={{
             episodeId: activeEpisodeId,
             episodeNo: String(currentEpNumber),
-            sub: activeCategory === "sub" ? [{ serverId: 1, serverName: anirakuFallbackProvider }] : [],
-            dub: activeCategory === "dub" ? [{ serverId: 1, serverName: anirakuFallbackProvider }] : [],
+            sub: anirakuFallbackPools.sub
+              ? [{ serverId: 1, serverName: anirakuFallbackPools.sub.provider }]
+              : [],
+            dub: anirakuFallbackPools.dub
+              ? [{ serverId: 1, serverName: anirakuFallbackPools.dub.provider }]
+              : [],
             raw: [],
           }}
           animeInfo={playerInfo}
           subOrDub={activeCategory}
           autoSkip={autoSkip}
           onError={() => {
-            setAnirakuFallbackData(null);
-            setAnirakuFallbackError("The direct stream failed to start. Try searching for another source.");
+            setAnirakuFallbackPools((current) => ({
+              ...current,
+              [activeCategory]: null,
+            }));
+            setAnirakuFallbackError(
+              `The direct ${activeCategory.toUpperCase()} stream failed to start. Try the other language or retry source search.`,
+            );
           }}
         />
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4 shadow-lg">
