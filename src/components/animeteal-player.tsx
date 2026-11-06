@@ -254,28 +254,69 @@ function AnimeTealPlayer({
     skipTimesRef.current.outroStart = outroStart;
     skipTimesRef.current.outroEnd = outroEnd; // Store the raw value
 
-    // Subtitle Track Selector Options
+    // Subtitle URLs from Aniraku are intentionally raw. Wrap them with
+    // its media proxy and forward the same headers used for the video source.
+    // Legacy sources keep using the existing /api/proxy route.
+    const usesAnirakuProxy = Boolean(uri?.includes("/api/v1/proxy?"));
+    const proxySubtitleUrl = (rawUrl: string) => {
+      if (!rawUrl) return rawUrl;
+
+      try {
+        const existing = new URL(rawUrl);
+        if (existing.pathname === "/api/v1/proxy") {
+          return `${existing.pathname}${existing.search}`;
+        }
+      } catch {
+        if (rawUrl.startsWith("/api/v1/proxy?")) return rawUrl;
+      }
+
+      if (usesAnirakuProxy) {
+        const params = new URLSearchParams({ url: rawUrl });
+        const requestHeaders = episodeInfo.requestHeaders ?? episodeInfo.headers;
+        if (requestHeaders && Object.keys(requestHeaders).length > 0) {
+          params.set("headers", JSON.stringify(requestHeaders));
+        }
+        return `/api/v1/proxy?${params.toString()}`;
+      }
+
+      const referer = episodeInfo?.headers?.Referer;
+      const refererParam = referer ? `&referer=${encodeURIComponent(referer)}` : "";
+      return `/api/proxy?url=${encodeURIComponent(rawUrl)}${refererParam}`;
+    };
+
+    const getSubtitleType = (rawUrl: string) => {
+      const extension = rawUrl.split("?")[0].split("#")[0].split(".").pop()?.toLowerCase();
+      return extension === "srt" || extension === "ass" || extension === "vtt"
+        ? extension
+        : "vtt";
+    };
+
+    const isEnglishTrack = (track: { lang?: string; label?: string }) =>
+      /^(en|eng|english)(?:[-_].*)?$/i.test(track.lang || "") ||
+      /english/i.test(track.label || "");
+
     const trackOptions: any = (episodeInfo?.subtitles ?? []).map((track) => ({
-      default: track.lang === "English" || track.lang === "en",
-      html: track.lang,
+      default: isEnglishTrack(track),
+      html: track.label || track.lang || "Subtitle",
       url: track.url,
+      type: getSubtitleType(track.url),
     }));
 
     const defaultTrack =
-      episodeInfo?.subtitles?.find(
-        (track) => track.lang === "English" || track.lang === "en",
-      )?.url || episodeInfo?.subtitles?.[0]?.url;
+      episodeInfo?.subtitles?.find(isEnglishTrack) ||
+      episodeInfo?.subtitles?.[0];
 
     const defaultTrackProxyUrl = defaultTrack
-      ? `/api/proxy?url=${encodeURIComponent(defaultTrack)}`
+      ? proxySubtitleUrl(defaultTrack.url)
       : undefined;
 
-    // Direct Subtitle Option based on subOrDub
+    // Direct Subtitle Option based on subOrDub. Dub audio remains selectable
+    // independently; captions can still be enabled manually when available.
     const subtitleConfig: Option["subtitle"] =
-      subOrDub === "sub" && defaultTrackProxyUrl
+      subOrDub === "sub" && defaultTrack && defaultTrackProxyUrl
         ? {
             url: defaultTrackProxyUrl,
-            type: "vtt",
+            type: getSubtitleType(defaultTrack.url),
             style: {
               color: "#FFFFFF",
               fontSize: "22px",
@@ -443,8 +484,9 @@ function AnimeTealPlayer({
           ],
           onSelect: function(item: any) {
             if (item.url && typeof item.url === "string") {
-              const proxiedUrl = `/api/proxy?url=${encodeURIComponent(item.url)}`;
+              const proxiedUrl = proxySubtitleUrl(item.url);
               art.subtitle.switch(proxiedUrl, {
+                type: item.type || getSubtitleType(item.url),
                 name: item.html,
               });
               return item.html ?? "Subtitle";
