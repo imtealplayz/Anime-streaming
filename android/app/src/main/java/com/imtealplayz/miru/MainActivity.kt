@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -160,25 +159,17 @@ class MainActivity : Activity() {
             }
 
             override fun onHideCustomView() {
-                val activeView = fullscreenView ?: return
-                root.removeView(activeView)
-                fullscreenView = null
-                fullscreenCallback?.onCustomViewHidden()
-                fullscreenCallback = null
-                webView.visibility = View.VISIBLE
-
-                @Suppress("DEPRECATION")
-                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+                exitFullscreen()
             }
         }
 
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        WebView.setWebContentsDebuggingEnabled(false)
         webView.loadUrl(SITE_URL)
     }
 
     override fun onBackPressed() {
         if (fullscreenView != null) {
-            webView.webChromeClient?.onHideCustomView()
+            exitFullscreen()
         } else if (::webView.isInitialized && webView.canGoBack()) {
             webView.goBack()
         } else {
@@ -204,6 +195,18 @@ class MainActivity : Activity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    private fun exitFullscreen() {
+        val activeView = fullscreenView ?: return
+        root.removeView(activeView)
+        fullscreenView = null
+        fullscreenCallback?.onCustomViewHidden()
+        fullscreenCallback = null
+        webView.visibility = View.VISIBLE
+
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
     }
 
     private fun dp(value: Int): Int =
