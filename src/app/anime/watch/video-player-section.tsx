@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useAnimeStore } from "@/store/anime-store";
 import dynamic from "next/dynamic";
 
-const MiruPlayer = dynamic(() => import("@/components/miru-player"), {
+const AnimeTealPlayer = dynamic(() => import("@/components/animeteal-player"), {
   ssr: false,
 });
 import { useGetEpisodeData } from "@/query/get-episode-data";
@@ -379,7 +379,7 @@ const VideoPlayerSection = () => {
         </div>
         <Alert variant="default" className="border-violet-900/60 bg-violet-950/20 text-violet-300 rounded-xl">
           <AlertCircle className="h-4 w-4 text-violet-400" />
-          <AlertTitle className="font-bold">Miru Stream Player Active</AlertTitle>
+          <AlertTitle className="font-bold">AnimeTeal Stream Player Active</AlertTitle>
           <AlertDescription className="text-xs text-violet-300/80 mt-1">
             Streaming via fast ad-free player. You can switch servers or categories above at any time.
           </AlertDescription>
@@ -390,7 +390,7 @@ const VideoPlayerSection = () => {
 
   return (
     <div>
-      <MiruPlayer
+      <AnimeTealPlayer
         key={episodeData.sources?.[0]?.url}
         episodeInfo={episodeData}
         serversData={{

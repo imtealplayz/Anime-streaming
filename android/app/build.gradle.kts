@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.imtealplayz.miru"
+    namespace = "com.imtealplayz.animeteal"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.imtealplayz.miru"
+        applicationId = "com.imtealplayz.animeteal"
         minSdk = 23
         targetSdk = 35
         versionCode = 1

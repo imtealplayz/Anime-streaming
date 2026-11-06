@@ -15,51 +15,19 @@ import SearchBar from "./search-bar";
 import { MenuIcon, X } from "lucide-react";
 import useScrollPosition from "@/hooks/use-scroll-position";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "./ui/sheet";
-import LoginPopoverButton from "./login-popover-button";
-import { useAuthStore } from "@/store/auth-store";
 import { pb } from "@/lib/pocketbase";
-import NavbarAvatar from "./navbar-avatar";
-import { toast } from "sonner";
 
 const menuItems: Array<{ title: string; href?: string }> = [];
 
 const NavBar = () => {
-  const auth = useAuthStore();
   const { y } = useScrollPosition();
   const isHeaderFixed = true;
   const isHeaderSticky = y > 0;
 
   useEffect(() => {
-    const refreshAuth = async () => {
-      try {
-        const stored = localStorage.getItem("pocketbase_auth");
-        if (!stored) return;
-        const auth_token = JSON.parse(stored);
-        if (auth_token) {
-          const user = await pb.collection("users").authRefresh();
-          if (user) {
-            auth.setAuth({
-              id: user.record.id,
-              email: user.record.email,
-              username: user.record.username,
-              avatar: user.record.avatar,
-              collectionId: user.record.collectionId,
-              collectionName: user.record.collectionName,
-              autoSkip: user.record.autoSkip,
-              created: user.record.created,
-            });
-          }
-        }
-      } catch (e) {
-        console.error("Auth refresh error:", e);
-        localStorage.removeItem("pocketbase_auth");
-        auth.clearAuth();
-        toast.error("Login session expired.", {
-          style: { background: "red" },
-        });
-      }
-    };
-    refreshAuth();
+    if (typeof window === "undefined") return;
+    localStorage.removeItem("auth");
+    pb.authStore.clear();
   }, []);
 
   return (
@@ -79,8 +47,8 @@ const NavBar = () => {
           className="flex items-center gap-3 cursor-pointer group"
         >
           <Image
-            src="/miru-logo.svg"
-            alt="Miru logo"
+            src="/animeteal-logo.svg"
+            alt="AnimeTeal logo"
             width={40}
             height={40}
             className="rounded-xl shadow-lg transition-transform group-hover:scale-105"
@@ -91,7 +59,7 @@ const NavBar = () => {
               "text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-pink-500 to-cyan-400 tracking-widest",
             ])}
           >
-            Miru
+            AnimeTeal
           </h1>
         </Link>
 
@@ -104,11 +72,9 @@ const NavBar = () => {
         </div>
         <div className="w-1/3 hidden lg:flex items-center gap-5">
           <SearchBar />
-          {auth.auth ? <NavbarAvatar auth={auth} /> : <LoginPopoverButton />}
         </div>
         <div className="lg:hidden flex items-center gap-5">
           <MobileMenuSheet trigger={<MenuIcon suppressHydrationWarning />} />
-          {auth.auth ? <NavbarAvatar auth={auth} /> : <LoginPopoverButton />}
         </div>
       </Container>
     </div>

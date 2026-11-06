@@ -56,7 +56,7 @@ const generateHighlights = (
 };
 
 // --- The Combined ArtPlayer Component ---
-function MiruPlayer({
+function AnimeTealPlayer({
   episodeInfo,
   animeInfo,
   subOrDub,
@@ -804,5 +804,5 @@ function MiruPlayer({
   );
 }
 
-export { MiruPlayer };
-export default MiruPlayer;
+export { AnimeTealPlayer };
+export default AnimeTealPlayer;

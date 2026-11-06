@@ -9,21 +9,11 @@ import AnimeCard from "@/components/anime-card";
 import { useAnimeStore } from "@/store/anime-store";
 
 import EpisodePlaylist from "@/components/episode-playlist";
-import Select, { ISelectOptions } from "@/components/common/select";
-import {
-  Ban,
-  BookmarkCheck,
-  CheckCheck,
-  Hand,
-  TvMinimalPlay,
-} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGetAnimeDetails } from "@/query/get-anime-details";
 import React, { ReactNode, useEffect, useMemo, useState } from "react";
 import AnimeCarousel from "@/components/anime-carousel";
 import { IAnime } from "@/types/anime";
-import useBookMarks from "@/hooks/use-get-bookmark";
-import { toast } from "sonner";
 import { useGetAllEpisodes } from "@/query/get-all-episodes";
 import CommentsSection from "@/components/comments/comments-section";
 
@@ -66,66 +56,6 @@ const Layout = (props: Props) => {
       router.push(ROUTES.HOME);
     }
   }, [animeId, router]);
-
-  const { bookmarks, createOrUpdateBookMark } = useBookMarks({
-    animeID: currentAnimeId as string,
-    page: 1,
-    per_page: 1,
-  });
-  const [selected, setSelected] = useState<string>("Plan to Watch");
-
-  useEffect(() => {
-    if (bookmarks?.[0]?.status) {
-      setSelected(bookmarks[0].status);
-    }
-  }, [bookmarks]);
-
-  const SelectOptions: ISelectOptions[] = [
-    {
-      label: "Watching",
-      value: "watching",
-      icon: TvMinimalPlay,
-    },
-    {
-      label: "Plan to watch",
-      value: "plan_to_watch",
-      icon: BookmarkCheck,
-    },
-    {
-      label: "On Hold",
-      value: "on_hold",
-      icon: Hand,
-    },
-    {
-      label: "Completed",
-      value: "completed",
-      icon: CheckCheck,
-    },
-    {
-      label: "Dropped",
-      value: "dropped",
-      icon: Ban,
-    },
-  ];
-
-  const handleSelect = async (value: string) => {
-    if (!anime?.anime.info.name || !anime?.anime.info.poster) return;
-    const previousSelected = selected;
-    setSelected(value);
-
-    try {
-      await createOrUpdateBookMark(
-        currentAnimeId as string,
-        anime?.anime.info.name!,
-        anime?.anime.info.poster!,
-        value,
-      );
-    } catch (error) {
-      console.log(error);
-      setSelected(previousSelected);
-      toast.error("Error adding to list", { style: { background: "red" } });
-    }
-  };
 
   const { data: episodes, isLoading: episodeLoading } = useGetAllEpisodes(
     animeId as string,
@@ -172,7 +102,6 @@ const Layout = (props: Props) => {
               subOrDub={anime?.anime.info.stats.episodes}
               episodes={episodes}
               isLoading={episodeLoading}
-              bookmarks={bookmarks}
             />
           )}
         </div>
@@ -204,13 +133,6 @@ const Layout = (props: Props) => {
                   </span>
                 )}
               </div>
-              <Select
-                placeholder="Add to list"
-                value={selected}
-                options={SelectOptions}
-                onChange={handleSelect}
-                className="w-44"
-              />
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-snug">
               {anime?.anime.info.name}

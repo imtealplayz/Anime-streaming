@@ -97,7 +97,7 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.text-gradient-miru {
+.text-gradient-animeteal {
   background: linear-gradient(135deg, #a5b4fc 0%, #c084fc 50%, #67e8f9 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;

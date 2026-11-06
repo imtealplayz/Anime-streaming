@@ -130,7 +130,7 @@ const HeroCanvasItem = ({
 
   const cleanDescription = (anime as any).description
     ? (anime as any).description.replace(/<[^>]*>?/gm, "").trim()
-    : "Stream this breathtaking title on Miru with zero ad interruptions and crisp playback.";
+    : "Discover this breathtaking anime on AnimeTeal.";
 
   return (
     <div className="relative w-full h-[85vh] min-h-[580px] max-h-[860px] overflow-hidden">

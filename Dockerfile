@@ -26,7 +26,7 @@ FROM base AS runner
 WORKDIR /app
 
 LABEL org.opencontainers.image.title="Miru" \
-  org.opencontainers.image.description="Modern, ad-free anime streaming web application" \
+  org.opencontainers.image.description="Personal anime discovery and streaming web application" \
   org.opencontainers.image.source="https://github.com/miru-web/miru-web"
 
 RUN addgroup -g 1001 -S nodejs

@@ -1,4 +1,4 @@
-package com.imtealplayz.miru
+package com.imtealplayz.animeteal
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -215,6 +215,6 @@ class MainActivity : Activity() {
     companion object {
         // Stable Vercel production alias. Update if the website domain changes.
         private const val SITE_URL =
-            "https://miru-anime-imtealplayzs-projects.vercel.app"
+            "https://animeteal.vercel.app"
     }
 }

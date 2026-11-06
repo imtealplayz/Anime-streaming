@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import Image from "next/image";
 import parse from "html-react-parser";
 import Container from "@/components/container";
@@ -13,14 +13,7 @@ import AnimeEpisodes from "@/components/anime-episodes";
 import CharacterCard from "@/components/common/character-card";
 import { ROUTES } from "@/constants/routes";
 import WatchTrailer from "@/components/watch-trailer";
-import Select, { ISelectOptions } from "@/components/common/select";
 import {
-  Ban,
-  BookmarkCheck,
-  CheckCheck,
-  Hand,
-  Heart,
-  TvMinimalPlay,
   Star,
   Film,
   Layers,
@@ -28,77 +21,10 @@ import {
 import { useParams } from "next/navigation";
 import { useGetAnimeDetails } from "@/query/get-anime-details";
 import Loading from "@/app/loading";
-import { useAuthStore } from "@/store/auth-store";
-import { toast } from "sonner";
-import useBookMarks from "@/hooks/use-get-bookmark";
-
-const SelectOptions: ISelectOptions[] = [
-  {
-    value: "plan to watch",
-    label: "Plan to Watch",
-    icon: BookmarkCheck,
-  },
-  {
-    value: "watching",
-    label: "Watching",
-    icon: TvMinimalPlay,
-  },
-  {
-    value: "completed",
-    label: "Completed",
-    icon: CheckCheck,
-  },
-  {
-    value: "on hold",
-    label: "On Hold",
-    icon: Hand,
-  },
-  {
-    value: "dropped",
-    label: "Dropped",
-    icon: Ban,
-  },
-];
 
 const Page = () => {
   const { slug } = useParams();
   const { data: anime, isLoading } = useGetAnimeDetails(slug as string);
-  const { auth } = useAuthStore();
-  const { bookmarks, createOrUpdateBookMark } = useBookMarks({
-    animeID: slug as string,
-    page: 1,
-    per_page: 1,
-  });
-  const [selected, setSelected] = useState(bookmarks?.[0]?.status || "");
-
-  useEffect(() => {
-    const currentStatus = bookmarks?.[0]?.status;
-    if (currentStatus && currentStatus !== selected) {
-      setSelected(currentStatus);
-    }
-  }, [bookmarks, selected]);
-
-  const handleSelect = async (value: string) => {
-    if (!auth) {
-      return;
-    }
-    const previousSelected = selected;
-    setSelected(value);
-
-    try {
-      await createOrUpdateBookMark(
-        slug as string,
-        anime?.anime.info.name!,
-        anime?.anime.info.poster!,
-        value,
-      );
-    } catch (error) {
-      console.log(error);
-      setSelected(previousSelected);
-      toast.error("Error adding to list", { style: { background: "red" } });
-    }
-  };
-
   if (isLoading || !anime) {
     return <Loading />;
   }
@@ -172,15 +98,7 @@ const Page = () => {
 
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <WatchButton />
-              {auth && (
-                <Select
-                  placeholder="Add to list"
-                  value={bookmarks?.[0]?.status || selected}
-                  options={SelectOptions}
-                  onChange={handleSelect}
-                  placeholderIcon={Heart}
-                />
-              )}
+              
             </div>
           </div>
         </div>

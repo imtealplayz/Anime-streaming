@@ -17,20 +17,20 @@ const geistSans = localFont({
   weight: "100 900",
 });
 
-const APP_NAME = "Miru";
-const APP_DEFAULT_TITLE = "Miru - Stream Anime with No Ads";
+const APP_NAME = "AnimeTeal";
+const APP_DEFAULT_TITLE = "AnimeTeal - Anime Streaming";
 const APP_DESCRIPTION =
-  "Watch your favorite anime anywhere, anytime with ease and no ads on Miru.";
+  "Discover anime, explore episodes, and continue watching with AnimeTeal.";
 
 export const metadata: Metadata = {
   applicationName: APP_NAME,
   title: {
     default: APP_DEFAULT_TITLE,
-    template: "%s | Miru",
+    template: "%s | AnimeTeal",
   },
   description: APP_DESCRIPTION,
   icons: {
-    icon: "/miru-logo.svg",
+    icon: "/animeteal-logo.svg",
     apple: "/icon-192x192.png",
   },
   appleWebApp: {
