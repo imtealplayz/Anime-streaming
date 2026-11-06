@@ -41,6 +41,31 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      # Keep the debug certificate stable across CI runs so future APKs can
+      # update the installed app without losing local favorites/watch history.
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: animeteal-debug-keystore-v1
+
+      - name: Create debug signing key when missing
+        shell: bash
+        run: |
+          if [[ ! -f "$HOME/.android/debug.keystore" ]]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \\
+              -keystore "$HOME/.android/debug.keystore" \\
+              -storetype JKS \\
+              -storepass android \\
+              -alias androiddebugkey \\
+              -keypass android \\
+              -keyalg RSA \\
+              -keysize 2048 \\
+              -validity 10000 \\
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Build APK
         working-directory: android
         run: gradle --no-daemon :app:assembleDebug
