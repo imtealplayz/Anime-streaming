@@ -333,10 +333,11 @@ class AnimeApi {
 
         val canonicalQuery = searchAliases[normalizeSearch(normalizedQuery)] ?: normalizedQuery
         val gql = """
-            query (${' {
+            query (${'$'}search: String!, ${'$'}page: Int!) {
+              Page(page: ${'$'}page, perPage: 50) {
                 pageInfo { hasNextPage currentPage }
                 media(
-                  search: ${'
+                  search: ${'$'}search,
                   type: ANIME,
                   sort: [SEARCH_MATCH, POPULARITY_DESC],
                   isAdult: false

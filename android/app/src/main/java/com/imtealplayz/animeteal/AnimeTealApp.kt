@@ -547,11 +547,15 @@ private fun SearchScreen(api: AnimeApi, onAnimeClick: (AnimeItem) -> Unit) {
             loading = false
             return@LaunchedEffect
         }
+        val submittedQuery = query.trim()
         loading = true
         error = null
         try {
-            delay(300)
-            results = api.search(query.trim())
+            delay(350)
+            val nextResults = api.search(submittedQuery)
+            if (query.trim() == submittedQuery) results = nextResults
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             error = e.message ?: "Search failed."
         } finally {
