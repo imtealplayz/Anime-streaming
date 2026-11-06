@@ -2,6 +2,7 @@
 
 import ContinueWatching from "@/components/continue-watching";
 import FeaturedCollection from "@/components/featured-collection";
+import AppDownloadPromo from "@/components/app-download-promo";
 import { useGetSpotlightAnime } from "@/query/get-spotlight-anime";
 import { useGetRecentAnime } from "@/query/get-recent-anime";
 import { useGetPopularAnime } from "@/query/get-popular-anime";
@@ -60,6 +61,8 @@ export default function Home() {
         spotlightAnime={spotlightList}
         isDataLoading={isLoadingSpotlight}
       />
+
+      <AppDownloadPromo />
 
       <LatestEpisodesAnime loading={isLoadingRecent} />
 
