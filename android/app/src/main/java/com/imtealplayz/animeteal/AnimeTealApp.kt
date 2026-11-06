@@ -54,7 +54,6 @@ private val Panel = Color(0xFF0D141B)
 private val Panel2 = Color(0xFF111C25)
 private val Teal = Color(0xFF2DD4BF)
 private val Muted = Color(0xFF9AAAB4)
-private val API_DEFAULT = BuildConfig.STREAM_API_BASE_URL
 
 private enum class MainTab { HOME, SEARCH, LIBRARY, SETTINGS }
 
@@ -67,10 +66,9 @@ private data class WatchEntry(
 private class LocalLibrary(context: Context) {
     private val prefs = context.getSharedPreferences("animeteal_native", Context.MODE_PRIVATE)
 
-    fun apiBase(): String = prefs.getString("api_base", API_DEFAULT) ?: API_DEFAULT
-
-    fun setApiBase(value: String) {
-        prefs.edit().putString("api_base", value.trim().trimEnd('/')).apply()
+    init {
+        // Clear the old user-editable endpoint preference from previous builds.
+        prefs.edit().remove("api_base").apply()
     }
 
     fun favorites(): List<AnimeItem> = readCards("favorites")
@@ -175,8 +173,7 @@ private class LocalLibrary(context: Context) {
 fun AnimeTealApp() {
     val context = LocalContext.current
     val library = remember { LocalLibrary(context) }
-    var apiBase by remember { mutableStateOf(library.apiBase()) }
-    val api = remember(apiBase) { AnimeApi(apiBase) }
+    val api = remember { AnimeApi() }
 
     var tab by remember { mutableStateOf(MainTab.HOME) }
     var selectedAnime by remember { mutableStateOf<AnimeItem?>(null) }
@@ -208,7 +205,7 @@ fun AnimeTealApp() {
                 var lastError: Exception? = null
                 for (candidate in candidates) {
                     try {
-                        resolved = api.source(episode.id, candidate.name, category)
+                        resolved = api.source(episode.id, candidate.provider, category)
                         break
                     } catch (e: Exception) {
                         lastError = e
@@ -323,18 +320,7 @@ fun AnimeTealApp() {
                                     onAnimeClick = { selectedAnime = it },
                                     onResume = { startEpisode(it.anime, it.episode) },
                                 )
-                                MainTab.SETTINGS -> SettingsScreen(
-                                    currentBase = apiBase,
-                                    onSave = { value ->
-                                        apiBase = value.trim().trimEnd('/')
-                                        library.setApiBase(apiBase)
-                                        tab = MainTab.HOME
-                                    },
-                                    onReset = {
-                                        apiBase = API_DEFAULT
-                                        library.setApiBase(API_DEFAULT)
-                                    }
-                                )
+                                MainTab.SETTINGS -> SettingsScreen()
                             }
                             if (resolving || errorMessage != null) {
                                 ResolveOverlay(resolving, errorMessage) { errorMessage = null }
@@ -718,39 +704,31 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun SettingsScreen(
-    currentBase: String,
-    onSave: (String) -> Unit,
-    onReset: () -> Unit,
-) {
-    var value by remember(currentBase) { mutableStateOf(currentBase) }
+private fun SettingsScreen() {
     Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         AppHeader(title = "Settings")
-        Text("Streaming API", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text("AnimeTeal for Android talks directly to a HiAnime-compatible REST API. It does not open the website.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
-        OutlinedTextField(
-            value = value,
-            onValueChange = { value = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API base URL") },
-            placeholder = { Text("https://your-api.example/api/v2/hianime") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Teal, unfocusedBorderColor = Color(0xFF26353E), focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = Teal),
+        Text("AnimeTeal service", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "AnimeTeal connects automatically to its managed anime catalogue and streaming service. No API setup or manual configuration is required.",
+            color = Muted,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
         )
-        Button(
-            onClick = { onSave(value) },
-            enabled = value.startsWith("https://"),
-            colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Color(0xFF05201D)),
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Save API address", fontWeight = FontWeight.Bold) }
-        OutlinedButton(onClick = { value = API_DEFAULT; onReset() }, modifier = Modifier.fillMaxWidth()) {
-            Text("Restore default API")
+            color = Panel,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, Color(0xFF263B43)),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("SERVICE STATUS", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text("Managed automatically", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("If anime or playback cannot load, use Retry. Provider availability can vary by title and region.", color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+            }
         }
-        Text("The default uses a community demo API and may be rate-limited or unavailable. For reliable personal use, deploy your own compatible API and paste its base URL here.", color = Muted, fontSize = 11.sp, lineHeight = 17.sp)
+        Text("Your favorites and Continue Watching history stay stored locally on this device.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
     }
 }
-
 @Composable
 private fun ErrorPanel(message: String, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(24.dp).clip(RoundedCornerShape(16.dp)).background(Panel).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
