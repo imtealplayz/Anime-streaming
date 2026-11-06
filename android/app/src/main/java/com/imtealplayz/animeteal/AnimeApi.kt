@@ -22,7 +22,7 @@ data class AnimeDetail(
     val studio: String = "", val aired: String = "", val duration: String = "",
 )
 data class EpisodeItem(val id: String, val number: Int, val title: String, val isFiller: Boolean = false)
-data class EpisodeServer(val name: String, val category: String, val provider: String = name)
+data class EpisodeServer(val name: String, val category: String, val provider: String = name, val sources: List<StreamSource> = emptyList())
 data class StreamSubtitle(val language: String, val url: String)
 data class StreamSource(
     val url: String, val quality: String, val headers: Map<String, String>,
@@ -238,7 +238,34 @@ class AnimeApi {
                 val item = a.optJSONObject(i) ?: continue
                 val provider = text(item, "provider")
                 val name = text(item, "name", "provider")
-                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+                if (provider.isBlank() || name.isBlank()) continue
+                val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+                item.optJSONObject("headers")?.let { h ->
+                    h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+                }
+                val sourceArray = item.optJSONArray("sources") ?: JSONArray()
+                val playableSources = buildList {
+                    for (sourceIndex in 0 until sourceArray.length()) {
+                        val source = sourceArray.optJSONObject(sourceIndex) ?: continue
+                        val sourceUrl = text(source, "url")
+                        val sourceType = text(source, "type", "mime").lowercase()
+                        val verdict = text(source, "verification", "Verification").lowercase()
+                        val isNative = sourceType.contains("hls") || sourceType.contains("mpegurl") ||
+                            sourceType.contains("mp4") || sourceUrl.contains(".m3u8", true) || sourceUrl.contains(".mp4", true)
+                        if (sourceUrl.isBlank() || verdict == "dead" || !isNative) continue
+                        val subtitleArray = source.optJSONArray("subtitles") ?: JSONArray()
+                        val subtitles = buildList {
+                            for (subtitleIndex in 0 until subtitleArray.length()) {
+                                val subtitle = subtitleArray.optJSONObject(subtitleIndex) ?: continue
+                                val subtitleUrl = text(subtitle, "url", "file")
+                                if (subtitleUrl.isNotBlank()) add(StreamSubtitle(text(subtitle, "lang", "label").ifBlank { "Subtitle" }, subtitleUrl))
+                            }
+                        }
+                        add(StreamSource(sourceUrl, text(source, "quality").ifBlank { "Auto" }, headers, subtitles,
+                            text(source, "type", "mime").ifBlank { if (sourceUrl.contains(".m3u8", true)) "hls" else "mp4" }))
+                    }
+                }
+                add(EpisodeServer(name, category, provider, playableSources))
             }
         }.distinctBy { it.provider }
     }
