@@ -316,26 +316,41 @@ const VideoPlayerSection = () => {
     const fallbackAnimeId = animeIdParam || anime?.anime?.info?.id || "1";
     const fallbackEpId = currentEpNumber || "1";
     let fallbackSrc = `https://megaplay.buzz/stream/ani/${fallbackAnimeId}/${fallbackEpId}/${activeCategory}`;
+    let fallbackLabel = "MegaPlay";
     if (fallbackServer === "vidlink") {
       fallbackSrc = `https://vidlink.pro/anime/${fallbackAnimeId}/${fallbackEpId}?sub=${activeCategory === "sub" ? 1 : 0}`;
+      fallbackLabel = "VidLink";
     } else if (fallbackServer === "autoembed") {
       fallbackSrc = `https://player.autoembed.cc/embed/anime/${fallbackAnimeId}/${fallbackEpId}`;
+      fallbackLabel = "Autoembed";
     }
 
     return (
       <div className="flex flex-col gap-4 w-full">
-        <div className="relative w-full h-auto aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] max-h-[500px] lg:max-h-[calc(100vh-150px)] bg-black overflow-hidden rounded-xl border border-slate-800">
-          <iframe
-            key={`${fallbackServer}-${fallbackAnimeId}-${fallbackEpId}-${activeCategory}`}
-            src={fallbackSrc}
-            title="AnimeTeal external video player"
-            width="100%"
-            height="100%"
-            allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-            referrerPolicy="strict-origin-when-cross-origin"
-            allowFullScreen
-            className="w-full h-full border-0"
-          ></iframe>
+        <div className="relative flex aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] max-h-[500px] lg:max-h-[calc(100vh-150px)] items-center justify-center overflow-hidden rounded-xl border border-slate-800 bg-[#07090e] p-6 text-center">
+          <div className="max-w-xl space-y-4">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-cyan-400/20 bg-cyan-400/10 text-cyan-300">
+              <Tv className="h-5 w-5" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-white">External player blocked in this tab</h3>
+              <p className="text-sm leading-relaxed text-slate-400">
+                Third-party fallback players can open pop-ups or redirect this page. AnimeTeal keeps them out of the embedded player so your current tab stays here.
+              </p>
+            </div>
+            <a
+              href={fallbackSrc}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              referrerPolicy="no-referrer"
+              className="inline-flex items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+            >
+              Open {fallbackLabel} in a new tab ↗
+            </a>
+            <p className="text-xs text-slate-500">
+              The external provider may still display its own ads. Opening it will not replace your AnimeTeal tab.
+            </p>
+          </div>
         </div>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-4 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 shadow-lg">
           <div className="flex flex-wrap items-center gap-3">
@@ -423,7 +438,7 @@ const VideoPlayerSection = () => {
           <AlertCircle className="h-4 w-4 text-violet-400" />
           <AlertTitle className="font-bold">AnimeTeal Stream Player Active</AlertTitle>
           <AlertDescription className="text-xs text-violet-300/80 mt-1">
-            Streaming via fast ad-free player. You can switch servers or categories above at any time.
+            External embeds stay disabled here to prevent unexpected pop-ups. Open a provider separately when you choose to.
           </AlertDescription>
         </Alert>
       </div>
