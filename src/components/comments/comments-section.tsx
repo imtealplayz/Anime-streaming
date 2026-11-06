@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { MessageSquare, Eye, EyeOff, ChevronDown, ChevronUp } from "lucide-react";
+import { MessageSquare, Eye, EyeOff, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useGetInfiniteComments } from "@/hooks/use-comments";
 import Avatar from "@/components/common/avatar";
 import { Button } from "@/components/ui/button";
