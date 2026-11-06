@@ -95,6 +95,21 @@ function AnimeTealPlayer({
   const uri = useMemo(() => {
     const firstSourceUrl = episodeInfo?.sources?.[0]?.url;
     if (!firstSourceUrl) return null;
+
+    // Aniraku HLS sources are already served through its CORS-enabled media
+    // proxy. Do not wrap them in AnimeTeal's legacy proxy a second time.
+    try {
+      const sourceUrl = new URL(firstSourceUrl);
+      if (
+        sourceUrl.origin === "https://api.aniraku.tech" &&
+        sourceUrl.pathname === "/api/v1/proxy"
+      ) {
+        return firstSourceUrl;
+      }
+    } catch {
+      // Continue through the legacy proxy for malformed or relative URLs.
+    }
+
     const referer = episodeInfo?.headers?.Referer;
     const encodedUrl = encodeURIComponent(firstSourceUrl);
     const refererParam = referer ? `&referer=${encodeURIComponent(referer)}` : "";
