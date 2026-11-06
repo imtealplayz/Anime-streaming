@@ -10,12 +10,15 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.text.Normalizer
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 
 data class AnimeItem(
     val id: String, val name: String, val poster: String, val type: String = "Anime",
     val episodes: Int = 0, val description: String = "", val rating: String = "",
+    val searchTerms: List<String> = emptyList(),
 )
 data class AnimeDetail(
     val item: AnimeItem, val banner: String = "", val description: String = "",
@@ -24,7 +27,12 @@ data class AnimeDetail(
 )
 data class EpisodeItem(val id: String, val number: Int, val title: String, val isFiller: Boolean = false)
 data class EpisodeServer(val name: String, val category: String, val provider: String = name, val sources: List<StreamSource> = emptyList())
-data class StreamSubtitle(val language: String, val url: String)
+data class StreamSubtitle(
+    val language: String,
+    val url: String,
+    val label: String = language,
+    val type: String = "vtt",
+)
 data class StreamSource(
     val url: String, val quality: String, val headers: Map<String, String>,
     val subtitles: List<StreamSubtitle>, val type: String = "hls",
@@ -37,7 +45,8 @@ data class HomeFeed(
 /** Fixed AnimeTeal service client; endpoint is app-owned, not user-editable. */
 class AnimeApi {
     private val base = "https://api.aniraku.tech"
-    private val metadataBase = "https://graphql.aniraku.tech"
+    // The website uses AniList official GraphQL first, with the managed backend as fallback.
+    private val metadataBase = "https://graphql.anilist.co"
     private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     private val referer = "https://aniraku.tech/"
     private val jsonType = "application/json; charset=utf-8".toMediaType()
@@ -45,11 +54,28 @@ class AnimeApi {
         .connectTimeout(25, TimeUnit.SECONDS).readTimeout(55, TimeUnit.SECONDS)
         .callTimeout(70, TimeUnit.SECONDS).build()
     private val metadataClient = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS)
-        .callTimeout(12, TimeUnit.SECONDS).build()
+        .connectTimeout(5, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
 
     private data class SearchCacheEntry(val savedAt: Long, val items: List<AnimeItem>)
     private val searchCache = ConcurrentHashMap<String, SearchCacheEntry>()
+    private val detailCache = ConcurrentHashMap<String, Pair<Long, AnimeDetail>>()
+    private val episodeCache = ConcurrentHashMap<String, Pair<Long, List<EpisodeItem>>>()
+
+    private val searchAliases = mapOf(
+        "aot" to "Attack on Titan",
+        "snk" to "Attack on Titan",
+        "fmab" to "Fullmetal Alchemist Brotherhood",
+        "hxh" to "Hunter x Hunter",
+        "jjk" to "Jujutsu Kaisen",
+        "csm" to "Chainsaw Man",
+        "mha" to "My Hero Academia",
+        "bnha" to "My Hero Academia",
+        "kimetsu" to "Demon Slayer",
+        "ks" to "Kaguya-sama Love is War",
+    )
+    private val metadataCacheTtlMs = 10 * 60 * 1000L
+    private val searchCacheTtlMs = 10 * 60 * 1000L
 
     private fun url(path: String, query: Map<String, String> = emptyMap()): String {
         val builder = (base + "/" + path.trimStart('/')).toHttpUrl().newBuilder()
@@ -170,6 +196,20 @@ class AnimeApi {
     private fun card(o: JSONObject): AnimeItem {
         val cover = o.optJSONObject("coverImage")
         val title = o.optJSONObject("title")
+        val synonyms = o.optJSONArray("synonyms")
+        val searchTerms = buildList {
+            listOf(
+                text(title, "english"),
+                text(title, "romaji"),
+                text(title, "native"),
+                text(title, "userPreferred"),
+            ).filter { it.isNotBlank() }.forEach(::add)
+            if (synonyms != null) {
+                for (i in 0 until synonyms.length()) {
+                    synonyms.optString(i).trim().takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        }.distinct()
         val score = o.optInt("averageScore", 0)
         return AnimeItem(
             id = text(o, "id"),
@@ -179,7 +219,76 @@ class AnimeApi {
             episodes = o.optInt("episodes", 0),
             description = clean(text(o, "description")),
             rating = if (score > 0) String.format("%.1f", score / 10.0) else "",
+            searchTerms = searchTerms,
         )
+    }
+
+    private fun normalizeSearch(value: String): String =
+        Normalizer.normalize(value, Normalizer.Form.NFKD)
+            .lowercase(Locale.ROOT)
+            .filter { it.isLetterOrDigit() }
+
+    private fun searchRelevance(item: AnimeItem, query: String): Int {
+        val normalizedQuery = normalizeSearch(query)
+        if (normalizedQuery.isBlank()) return 0
+
+        val titles = (listOf(item.name) + item.searchTerms).distinct()
+        var best = 0
+        for (title in titles) {
+            val normalizedTitle = normalizeSearch(title)
+            if (normalizedTitle.isBlank()) continue
+            val score = when {
+                normalizedTitle == normalizedQuery -> 1000
+                normalizedTitle.startsWith(normalizedQuery) -> 850
+                normalizedTitle.contains(normalizedQuery) -> 700
+                else -> {
+                    val queryWords = query.lowercase(Locale.ROOT)
+                        .split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+                    val titleWords = title.lowercase(Locale.ROOT)
+                        .split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+                    val allWordsMatch = queryWords.isNotEmpty() &&
+                        queryWords.all { queryWord ->
+                            titleWords.any { it.startsWith(queryWord) || it.contains(queryWord) }
+                        }
+                    val initials = titleWords.mapNotNull { it.firstOrNull() }.joinToString("")
+                    when {
+                        initials == normalizedQuery -> 650
+                        allWordsMatch -> 500
+                        else -> 0
+                    }
+                }
+            }
+            if (score > best) best = score
+        }
+        return best
+    }
+
+    private fun subtitleProxyUrl(rawUrl: String, headers: Map<String, String>): String {
+        val source = rawUrl.trim()
+        if (source.isBlank()) return source
+        if (source.contains("/api/v1/proxy?")) return source
+
+        val builder = base.toHttpUrl().newBuilder()
+            .addPathSegments("api/v1/proxy")
+            .addQueryParameter("url", source)
+        if (headers.isNotEmpty()) {
+            val headerJson = JSONObject().apply {
+                headers.forEach { (key, value) -> put(key, value) }
+            }
+            builder.addQueryParameter("headers", headerJson.toString())
+        }
+        return builder.build().toString()
+    }
+
+    private fun subtitleType(item: JSONObject, url: String): String {
+        val declared = text(item, "type", "format", "mime", "mimeType").lowercase()
+        val extension = url.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase()
+        return when {
+            declared.contains("subrip") || declared == "srt" || extension == "srt" -> "srt"
+            declared.contains("ssa") || declared.contains("ass") || extension == "ass" || extension == "ssa" -> "ass"
+            declared.contains("ttml") || extension == "ttml" || extension == "xml" -> "ttml"
+            else -> "vtt"
+        }
     }
     private fun cards(a: JSONArray?): List<AnimeItem> {
         if (a == null) return emptyList()
@@ -217,37 +326,64 @@ class AnimeApi {
         val normalizedQuery = query.trim().replace(Regex("\\s+"), " ")
         if (normalizedQuery.length < 2) return emptyList()
 
-        val cacheKey = "${normalizedQuery.lowercase()}:$page"
-        val cached = searchCache[cacheKey]
+        val cacheKey = "${normalizeSearch(normalizedQuery)}:$page"
         val now = System.currentTimeMillis()
-        if (cached != null && now - cached.savedAt < 5 * 60 * 1000L) return cached.items
+        val cached = searchCache[cacheKey]
+        if (cached != null && now - cached.savedAt < searchCacheTtlMs) return cached.items
 
-        val gql = buildString {
-            append("query (")
-            append('$')
-            append("search: String!, ")
-            append('$')
-            append("page: Int!) { Page(page: ")
-            append('$')
-            append("page, perPage: 24) { media(search: ")
-            append('$')
-            append("search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) { ")
-            append("id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore")
-            append(" } } }")
-        }
+        val canonicalQuery = searchAliases[normalizeSearch(normalizedQuery)] ?: normalizedQuery
+        val gql = """
+            query ($search: String!, $page: Int!) {
+              Page(page: $page, perPage: 50) {
+                pageInfo { hasNextPage currentPage }
+                media(
+                  search: $search,
+                  type: ANIME,
+                  sort: [SEARCH_MATCH, POPULARITY_DESC],
+                  isAdult: false
+                ) {
+                  id
+                  title { romaji english native userPreferred }
+                  synonyms
+                  coverImage { extraLarge large }
+                  format
+                  episodes
+                  description
+                  averageScore
+                  isAdult
+                }
+              }
+            }
+        """.trimIndent()
+
         return try {
-            val data = anilist(gql, JSONObject().put("search", normalizedQuery).put("page", page))
+            val data = anilist(gql, JSONObject().put("search", canonicalQuery).put("page", page))
             val items = cards(data.optJSONObject("Page")?.optJSONArray("media"))
+                .filter { it.id.isNotBlank() && it.poster.isNotBlank() }
+                .distinctBy { it.id }
+                .map { it to searchRelevance(it, canonicalQuery) }
+                .filter { it.second > 0 }
+                .sortedWith(
+                    compareByDescending<Pair<AnimeItem, Int>> { it.second }
+                        .thenByDescending { it.first.rating.toFloatOrNull() ?: 0f }
+                )
+                .map { it.first }
+
             searchCache[cacheKey] = SearchCacheEntry(now, items)
+            if (searchCache.size > 60) {
+                val oldest = searchCache.entries.sortedBy { it.value.savedAt }.take(searchCache.size - 50)
+                oldest.forEach { searchCache.remove(it.key, it.value) }
+            }
             items
         } catch (error: Exception) {
-            // Showing the last successful result is better than an empty screen during a brief outage.
+            // Keep the last successful query result during a brief upstream outage.
             cached?.items ?: throw error
         }
     }
 
     suspend fun detail(animeId: String): AnimeDetail {
         val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        detailCache[id.toString()]?.takeIf { System.currentTimeMillis() - it.first < metadataCacheTtlMs }?.let { return it.second }
         val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
         val cover = media.optJSONObject("coverImage")
         val genresArray = media.optJSONArray("genres")
@@ -257,7 +393,7 @@ class AnimeApi {
         val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
         val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
         val duration = media.optInt("duration", 0)
-        return AnimeDetail(
+        val result = AnimeDetail(
             item = card(media),
             banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
             description = clean(text(media, "description")),
@@ -267,10 +403,13 @@ class AnimeApi {
             aired = year.takeIf { it > 0 }?.toString().orEmpty(),
             duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
         )
+        detailCache[id.toString()] = System.currentTimeMillis() to result
+        return result
     }
 
     suspend fun episodes(animeId: String): List<EpisodeItem> {
         val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        episodeCache[id.toString()]?.takeIf { System.currentTimeMillis() - it.first < metadataCacheTtlMs }?.let { return it.second }
         val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
         val a = data.optJSONArray("episodes") ?: JSONArray()
         return buildList {
@@ -280,7 +419,9 @@ class AnimeApi {
                 if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
                     item.optBoolean("isFiller", item.optBoolean("filler", false))))
             }
-        }.sortedBy { it.number }
+        }.sortedBy { it.number }.also {
+            episodeCache[id.toString()] = System.currentTimeMillis() to it
+        }
     }
 
     private fun episodeKey(key: String): Pair<Long, Int> {
@@ -320,7 +461,19 @@ class AnimeApi {
                             for (subtitleIndex in 0 until subtitleArray.length()) {
                                 val subtitle = subtitleArray.optJSONObject(subtitleIndex) ?: continue
                                 val subtitleUrl = text(subtitle, "url", "file")
-                                if (subtitleUrl.isNotBlank()) add(StreamSubtitle(text(subtitle, "lang", "label").ifBlank { "Subtitle" }, subtitleUrl))
+                                if (subtitleUrl.isNotBlank()) {
+                                    val language = text(subtitle, "lang", "language").ifBlank {
+                                        text(subtitle, "label").ifBlank { "Subtitle" }
+                                    }
+                                    add(
+                                        StreamSubtitle(
+                                            language = language,
+                                            url = subtitleProxyUrl(subtitleUrl, headers),
+                                            label = text(subtitle, "label").ifBlank { language },
+                                            type = subtitleType(subtitle, subtitleUrl),
+                                        )
+                                    )
+                                }
                             }
                         }
                         add(StreamSource(sourceUrl, text(source, "quality").ifBlank { "Auto" }, headers, subtitles,
@@ -373,7 +526,19 @@ class AnimeApi {
             for (i in 0 until subArray.length()) {
                 val item = subArray.optJSONObject(i) ?: continue
                 val u = text(item, "url", "file")
-                if (u.isNotBlank()) add(StreamSubtitle(text(item, "lang", "label").ifBlank { "Subtitle" }, u))
+                if (u.isNotBlank()) {
+                    val language = text(item, "lang", "language").ifBlank {
+                        text(item, "label").ifBlank { "Subtitle" }
+                    }
+                    add(
+                        StreamSubtitle(
+                            language = language,
+                            url = subtitleProxyUrl(u, headers),
+                            label = text(item, "label").ifBlank { language },
+                            type = subtitleType(item, u),
+                        )
+                    )
+                }
             }
         }
         val streamUrl = text(chosen, "url")
