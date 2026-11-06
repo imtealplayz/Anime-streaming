@@ -194,7 +194,7 @@ const VideoPlayerSection = () => {
       lang: activeCategory,
     });
 
-    fetch("/api/aniraku/servers?" + params.toString(), {
+    fetch("/api/v1/servers?" + params.toString(), {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
