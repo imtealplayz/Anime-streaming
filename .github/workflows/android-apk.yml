@@ -70,6 +70,9 @@ jobs:
         working-directory: android
         run: gradle --no-daemon :app:assembleDebug
 
+      - name: Name installable APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk AnimeTeal.apk
+
       - name: Publish direct APK download
         uses: softprops/action-gh-release@v2
         with:
@@ -81,7 +84,7 @@ jobs:
             Download AnimeTeal.apk and install it on your Android device.
             This is a debug-signed APK distributed outside Google Play.
           target_commitish: main
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          files: AnimeTeal.apk
           overwrite_files: true
           make_latest: false
         env:
