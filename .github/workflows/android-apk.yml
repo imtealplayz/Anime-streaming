@@ -47,7 +47,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
-          key: animeteal-debug-keystore-v1
+          key: animeteal-debug-keystore-v2
 
       - name: Create debug signing key when missing
         shell: bash
