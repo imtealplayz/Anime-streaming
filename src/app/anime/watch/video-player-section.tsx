@@ -325,42 +325,16 @@ const VideoPlayerSection = () => {
       fallbackLabel = "Autoembed";
     }
 
-    // Use a sandboxed srcDoc wrapper around the provider. The provider's own iframe
-    // has no sandbox attribute to trip embed checks, but inherits the ancestor's
-    // restrictions: it can play media, while top-level navigation and pop-ups stay blocked.
-    const escapedFallbackSrc = fallbackSrc
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    const fallbackFrameDocument = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body style="margin:0;width:100%;height:100%;overflow:hidden;background:#000">
-<iframe
-  src="${escapedFallbackSrc}"
-  title="${fallbackLabel} player"
-  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-  allowfullscreen
-  referrerpolicy="strict-origin-when-cross-origin"
-  style="display:block;width:100%;height:100%;border:0"
-></iframe>
-</body>
-</html>`;
-
     return (
       <div className="flex flex-col gap-4 w-full">
         <div className="relative w-full h-auto aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] max-h-[500px] lg:max-h-[calc(100vh-150px)] bg-black overflow-hidden rounded-xl border border-slate-800">
           <iframe
             key={`${fallbackServer}-${fallbackAnimeId}-${fallbackEpId}-${activeCategory}`}
-            srcDoc={fallbackFrameDocument}
+            src={fallbackSrc}
             title={`AnimeTeal ${fallbackLabel} video player`}
             width="100%"
             height="100%"
-            sandbox="allow-scripts allow-same-origin allow-presentation"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
             allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
             referrerPolicy="strict-origin-when-cross-origin"
             allowFullScreen
