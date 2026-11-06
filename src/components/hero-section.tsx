@@ -30,7 +30,7 @@ type IHeroSectionProps = {
 
 const HeroSection = ({ spotlightAnime, isDataLoading }: IHeroSectionProps) => {
   const [api, setApi] = useState<CarouselApi>();
-  const [, setCurrent] = useState(0);
+  const [current, setCurrent] = useState(0);
 
   useEffect(() => {
     if (!api) return;
