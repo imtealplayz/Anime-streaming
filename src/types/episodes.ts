@@ -16,6 +16,9 @@ export interface IEpisodeSource {
   headers: {
     Referer: string;
   };
+  // Optional full provider headers used by Aniraku's media proxy for raw
+  // subtitle URLs. Existing legacy sources continue to use headers.Referer.
+  requestHeaders?: Record<string, string>;
   subtitles: Track[];
   intro: Intro;
   outro: Outro;
@@ -44,6 +47,7 @@ export interface IEpisodeServers {
 export interface Track {
   lang: string;
   url: string;
+  label?: string;
 }
 
 export interface Intro {
