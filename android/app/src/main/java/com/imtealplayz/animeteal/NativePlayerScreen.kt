@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -421,7 +422,7 @@ fun NativePlayerScreen(
                 modifier = Modifier.fillMaxSize(),
                 factory = { viewContext ->
                     PlayerView(viewContext).apply {
-                        player = player
+                        this.player = player
                         useController = false
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
