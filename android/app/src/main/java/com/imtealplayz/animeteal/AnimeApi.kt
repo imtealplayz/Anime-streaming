@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 
 data class AnimeItem(
     val id: String, val name: String, val poster: String, val type: String = "Anime",
@@ -36,12 +37,19 @@ data class HomeFeed(
 /** Fixed AnimeTeal service client; endpoint is app-owned, not user-editable. */
 class AnimeApi {
     private val base = "https://api.aniraku.tech"
+    private val metadataBase = "https://graphql.aniraku.tech"
     private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     private val referer = "https://aniraku.tech/"
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS).readTimeout(55, TimeUnit.SECONDS)
         .callTimeout(70, TimeUnit.SECONDS).build()
+    private val metadataClient = OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS).build()
+
+    private data class SearchCacheEntry(val savedAt: Long, val items: List<AnimeItem>)
+    private val searchCache = ConcurrentHashMap<String, SearchCacheEntry>()
 
     private fun url(path: String, query: Map<String, String> = emptyMap()): String {
         val builder = (base + "/" + path.trimStart('/')).toHttpUrl().newBuilder()
@@ -49,14 +57,20 @@ class AnimeApi {
         return builder.build().toString()
     }
 
-    private suspend fun raw(path: String, query: Map<String, String> = emptyMap(), body: JSONObject? = null): String =
-        withContext(Dispatchers.IO) {
+    private suspend fun raw(
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        body: JSONObject? = null,
+        requestTimeoutMs: Long? = null,
+    ): String = withContext(Dispatchers.IO) {
             val builder = Request.Builder().url(url(path, query))
                 .header("Accept", "application/json").header("User-Agent", userAgent)
                 .header("Referer", referer)
             if (body == null) builder.get() else builder.post(body.toString().toRequestBody(jsonType))
                 .header("Content-Type", "application/json")
-            client.newCall(builder.build()).execute().use { response ->
+            val call = client.newCall(builder.build())
+            requestTimeoutMs?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
+            call.execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 val ct = response.header("Content-Type").orEmpty()
                 val trimmed = text.trimStart()
@@ -83,8 +97,13 @@ class AnimeApi {
             }
         }
 
-    private suspend fun obj(path: String, query: Map<String, String> = emptyMap(), body: JSONObject? = null): JSONObject {
-        val text = raw(path, query, body)
+    private suspend fun obj(
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        body: JSONObject? = null,
+        requestTimeoutMs: Long? = null,
+    ): JSONObject {
+        val text = raw(path, query, body, requestTimeoutMs)
         return try { JSONObject(text) } catch (e: Exception) { throw IOException("The anime service returned invalid JSON.", e) }
     }
     private suspend fun array(path: String, query: Map<String, String> = emptyMap()): JSONArray {
@@ -102,8 +121,36 @@ class AnimeApi {
         )
         return root.optJSONObject("data") ?: root
     }
-    private suspend fun anilist(query: String, variables: JSONObject = JSONObject()) =
-        graphData(obj("/api/v1/anilist", body = JSONObject().put("query", query).put("variables", variables)))
+    private suspend fun anilist(query: String, variables: JSONObject = JSONObject()): JSONObject {
+        val payload = JSONObject().put("query", query).put("variables", variables)
+        return try {
+            val text = withContext(Dispatchers.IO) {
+                val request = Request.Builder()
+                    .url(metadataBase)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", userAgent)
+                    .header("Referer", referer)
+                    .post(payload.toString().toRequestBody(jsonType))
+                    .build()
+                metadataClient.newCall(request).execute().use { response ->
+                    val responseText = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        throw IOException("Anime catalogue mirror returned HTTP ${response.code}.")
+                    }
+                    if (responseText.isBlank()) throw IOException("Anime catalogue mirror returned an empty response.")
+                    responseText
+                }
+            }
+            graphData(JSONObject(text))
+        } catch (mirrorError: Exception) {
+            // Keep the managed backend as a compatibility fallback if the mirror is unavailable.
+            try {
+                graphData(obj("/api/v1/anilist", body = payload, requestTimeoutMs = 15_000L))
+            } catch (fallbackError: Exception) {
+                throw IOException("Anime catalogue is temporarily unavailable.", fallbackError)
+            }
+        }
+    }
 
     private fun text(obj: JSONObject?, vararg keys: String): String {
         if (obj == null) return ""
@@ -167,6 +214,14 @@ class AnimeApi {
     }
 
     suspend fun search(query: String, page: Int = 1): List<AnimeItem> {
+        val normalizedQuery = query.trim().replace(Regex("\\s+"), " ")
+        if (normalizedQuery.length < 2) return emptyList()
+
+        val cacheKey = "${normalizedQuery.lowercase()}:$page"
+        val cached = searchCache[cacheKey]
+        val now = System.currentTimeMillis()
+        if (cached != null && now - cached.savedAt < 5 * 60 * 1000L) return cached.items
+
         val gql = buildString {
             append("query (")
             append('$')
@@ -180,8 +235,15 @@ class AnimeApi {
             append("id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore")
             append(" } } }")
         }
-        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
-        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+        return try {
+            val data = anilist(gql, JSONObject().put("search", normalizedQuery).put("page", page))
+            val items = cards(data.optJSONObject("Page")?.optJSONArray("media"))
+            searchCache[cacheKey] = SearchCacheEntry(now, items)
+            items
+        } catch (error: Exception) {
+            // Showing the last successful result is better than an empty screen during a brief outage.
+            cached?.items ?: throw error
+        }
     }
 
     suspend fun detail(animeId: String): AnimeDetail {
@@ -278,14 +340,20 @@ class AnimeApi {
         resolveStream(episodeId, null, category)
 
     suspend fun source(episodeId: String, provider: String, category: String): StreamSource =
-        resolveStream(episodeId, provider, category)
+        resolveStream(episodeId, provider, category, requestTimeoutMs = 6_000L)
 
-    private suspend fun resolveStream(episodeId: String, provider: String?, category: String): StreamSource {
+    private suspend fun resolveStream(
+        episodeId: String,
+        provider: String?,
+        category: String,
+        requestTimeoutMs: Long? = null,
+    ): StreamSource {
         val (id, ep) = episodeKey(episodeId)
         val request = JSONObject().put("animeId", id).put("episode", ep)
             .put("lang", category).put("quality", "auto")
         if (!provider.isNullOrBlank()) request.put("provider", provider)
-        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val data = obj("/api/v1/stream", body = request, requestTimeoutMs = requestTimeoutMs)
+            .let { it.optJSONObject("data") ?: it }
         val sources = data.optJSONArray("sources") ?: JSONArray()
         val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
             val u = text(item, "url")

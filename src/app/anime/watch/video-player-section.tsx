@@ -328,8 +328,12 @@ const VideoPlayerSection = () => {
           <iframe
             key={`${fallbackServer}-${fallbackAnimeId}-${fallbackEpId}-${activeCategory}`}
             src={fallbackSrc}
+            title="AnimeTeal external video player"
             width="100%"
             height="100%"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+            allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
             allowFullScreen
             className="w-full h-full border-0"
           ></iframe>

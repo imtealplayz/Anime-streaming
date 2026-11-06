@@ -44,6 +44,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -179,6 +181,7 @@ fun AnimeTealApp() {
     var selectedAnime by remember { mutableStateOf<AnimeItem?>(null) }
     var playerState by remember { mutableStateOf<Triple<AnimeItem, EpisodeItem, StreamSource>?>(null) }
     var resolving by remember { mutableStateOf(false) }
+    var resolvingMessage by remember { mutableStateOf("Connecting to anime providers…") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val favorites = remember { mutableStateListOf<AnimeItem>().apply { addAll(library.favorites()) } }
@@ -197,14 +200,20 @@ fun AnimeTealApp() {
             resolving = true
             errorMessage = null
             try {
-                // /servers fans out across providers and already returns verified,
-                // proxy-ready URLs. Play the first native source directly instead of
-                // resolving the same provider again through /stream.
-                val servers = api.servers(episode.id, category)
-                val stream = servers.asSequence()
-                    .flatMap { it.sources.asSequence() }
-                    .firstOrNull()
-                    ?: throw IllegalStateException("No playable ${category.uppercase()} stream is currently available for this episode.")
+                // Try the backend's primary direct provider first with a hard 6s cap.
+                // Only pay for the full multi-provider fan-out when that fast path misses.
+                resolvingMessage = "Trying the primary stream…"
+                val stream = try {
+                    api.source(episode.id, "anikoto", category)
+                } catch (_: Exception) {
+                    resolvingMessage = "Checking backup providers…"
+                    val servers = api.servers(episode.id, category)
+                    servers.asSequence()
+                        .flatMap { it.sources.asSequence() }
+                        .firstOrNull()
+                        ?: throw IllegalStateException("No playable ${category.uppercase()} stream is currently available for this episode.")
+                }
+                resolvingMessage = "Preparing the video player…"
                 val savedPositionMs = history.firstOrNull {
                     it.anime.id == anime.id && it.episode.id == episode.id
                 }?.positionMs ?: 0L
@@ -316,7 +325,7 @@ fun AnimeTealApp() {
                                 MainTab.SETTINGS -> SettingsScreen()
                             }
                             if (resolving || errorMessage != null) {
-                                ResolveOverlay(resolving, errorMessage) { errorMessage = null }
+                                ResolveOverlay(resolving, errorMessage, { errorMessage = null }, resolvingMessage)
                             }
                         }
                     }
@@ -478,10 +487,10 @@ private fun SearchScreen(api: AnimeApi, onAnimeClick: (AnimeItem) -> Unit) {
             loading = false
             return@LaunchedEffect
         }
-        delay(450)
         loading = true
         error = null
         try {
+            delay(300)
             results = api.search(query.trim())
         } catch (e: Exception) {
             error = e.message ?: "Search failed."
@@ -560,8 +569,13 @@ private fun AnimeDetailScreen(
         loading = true
         error = null
         try {
-            detail = api.detail(anime.id)
-            episodes = api.episodes(anime.id)
+            val loaded = coroutineScope {
+                val detailRequest = async { api.detail(anime.id) }
+                val episodesRequest = async { api.episodes(anime.id) }
+                detailRequest.await() to episodesRequest.await()
+            }
+            detail = loaded.first
+            episodes = loaded.second
         } catch (e: Exception) {
             error = e.message ?: "Could not load this anime."
         } finally {
@@ -734,12 +748,17 @@ private fun ErrorPanel(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun ResolveOverlay(loading: Boolean, message: String?, onDismiss: () -> Unit) {
+private fun ResolveOverlay(
+    loading: Boolean,
+    message: String?,
+    onDismiss: () -> Unit,
+    loadingText: String,
+) {
     if (loading) {
         Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
             Column(Modifier.clip(RoundedCornerShape(16.dp)).background(Panel2).padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 CircularProgressIndicator(color = Teal)
-                Text("Finding a playable source…", color = Color.White, fontSize = 13.sp)
+                Text(loadingText, color = Color.White, fontSize = 13.sp)
             }
         }
     } else if (message != null) {
@@ -836,7 +855,7 @@ private fun NativePlayerScreen(
             Text("Source: ${stream.quality}", color = Teal, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             if (playerError != null) {
                 Text(playerError!!, color = Color(0xFFFFA5A5), fontSize = 12.sp)
-                Text("Try another source or change the API server in Settings.", color = Muted, fontSize = 11.sp)
+                Text("Go back and try the episode again. Provider availability can change.", color = Muted, fontSize = 11.sp)
             }
             Text("Playback is handled by Android Media3. The player stays inside AnimeTeal.", color = Muted, fontSize = 11.sp, lineHeight = 17.sp)
         }
