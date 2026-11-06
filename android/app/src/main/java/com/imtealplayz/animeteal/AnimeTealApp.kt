@@ -197,21 +197,9 @@ fun AnimeTealApp() {
             resolving = true
             errorMessage = null
             try {
-                val candidates = api.servers(episode.id, category)
-                if (candidates.isEmpty()) {
-                    throw IllegalStateException("No ${category.uppercase()} servers are available for this episode.")
-                }
-                var resolved: StreamSource? = null
-                var lastError: Exception? = null
-                for (candidate in candidates) {
-                    try {
-                        resolved = api.source(episode.id, candidate.provider, category)
-                        break
-                    } catch (e: Exception) {
-                        lastError = e
-                    }
-                }
-                val stream = resolved ?: throw (lastError ?: IllegalStateException("No playable source was returned."))
+                // One backend request invokes its built-in provider fallback chain.
+                // Avoid /servers fan-out followed by serial per-provider requests.
+                val stream = api.sourceAuto(episode.id, category)
                 val savedPositionMs = history.firstOrNull {
                     it.anime.id == anime.id && it.episode.id == episode.id
                 }?.positionMs ?: 0L
