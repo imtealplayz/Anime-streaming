@@ -78,17 +78,53 @@ class AnimeApi(baseUrl: String) {
 
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
+                val contentType = response.header("Content-Type").orEmpty()
+                val trimmedBody = body.trimStart()
+                val isHtmlResponse =
+                    contentType.contains("text/html", ignoreCase = true) ||
+                    trimmedBody.startsWith("<!doctype html", ignoreCase = true) ||
+                    trimmedBody.startsWith("<html", ignoreCase = true)
+
                 if (!response.isSuccessful) {
-                    val detail = try {
-                        JSONObject(body).optString("message")
-                    } catch (_: Exception) {
-                        body.take(160)
+                    val detail = when {
+                        response.code == 429 -> {
+                            val retryAfter = response.header("Retry-After")?.toIntOrNull()
+                            buildString {
+                                append("The anime API is rate-limiting requests (HTTP 429).")
+                                if (retryAfter != null && retryAfter > 0) {
+                                    append(" Try again in ${retryAfter} seconds.")
+                                } else {
+                                    append(" Wait a little before retrying.")
+                                }
+                                append(" If it keeps happening, add your own compatible API URL in Settings.")
+                            }
+                        }
+                        isHtmlResponse ->
+                            "The API returned a web security challenge instead of anime data. Try again later or change the API URL in Settings."
+                        else -> {
+                            val jsonDetail = try {
+                                val error = JSONObject(body)
+                                error.optString("message").ifBlank { error.optString("error") }
+                            } catch (_: Exception) {
+                                ""
+                            }
+                            jsonDetail.ifBlank { body.take(160) }
+                        }
                     }
+
                     throw IOException(
                         "API returned HTTP ${response.code}" +
                             if (detail.isNotBlank()) ": $detail" else ""
                     )
                 }
+
+                if (isHtmlResponse) {
+                    throw IOException(
+                        "The API returned a web security challenge instead of anime data. " +
+                            "It may be temporarily blocking requests. Try again later or change the API URL in Settings."
+                    )
+                }
+
                 try {
                     JSONObject(body)
                 } catch (error: Exception) {
