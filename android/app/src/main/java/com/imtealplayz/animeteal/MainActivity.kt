@@ -30,15 +30,15 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.statusBarColor = Color.rgb(11, 15, 25)
-        window.navigationBarColor = Color.rgb(11, 15, 25)
+        window.statusBarColor = Color.rgb(7, 9, 14)
+        window.navigationBarColor = Color.rgb(7, 9, 14)
 
         root = FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(11, 15, 25))
+            setBackgroundColor(Color.rgb(7, 9, 14))
         }
 
         webView = WebView(this).apply {
-            setBackgroundColor(Color.rgb(11, 15, 25))
+            setBackgroundColor(Color.rgb(7, 9, 14))
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
@@ -49,8 +49,11 @@ class MainActivity : Activity() {
                 databaseEnabled = true
                 mediaPlaybackRequiresUserGesture = false
                 loadsImagesAutomatically = true
+                // Let the page use its device-width viewport. Overview mode
+                // can shrink an entire responsive page to fit the screen.
                 useWideViewPort = true
-                loadWithOverviewMode = true
+                loadWithOverviewMode = false
+                textZoom = 100
                 cacheMode = WebSettings.LOAD_DEFAULT
                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 setSupportMultipleWindows(false)
@@ -99,8 +102,6 @@ class MainActivity : Activity() {
                 val uri = request?.url ?: return false
                 val scheme = uri.scheme?.lowercase()
 
-                // Keep regular web links in the app. Hand phone, email, and
-                // custom schemes to Android for the appropriate installed app.
                 if (scheme == "http" || scheme == "https") return false
 
                 return try {
@@ -116,7 +117,6 @@ class MainActivity : Activity() {
                 handler: SslErrorHandler?,
                 error: SslError?
             ) {
-                // Never bypass certificate errors.
                 handler?.cancel()
             }
         }
@@ -213,7 +213,7 @@ class MainActivity : Activity() {
         (value * resources.displayMetrics.density).toInt()
 
     companion object {
-        // Stable Vercel production alias. Update if the website domain changes.
+        // The Android app opens the same responsive landing page as the website.
         private const val SITE_URL =
             "https://animeteal.vercel.app"
     }

@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import Image from "next/image";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Carousel,
@@ -10,8 +9,17 @@ import {
   CarouselItem,
 } from "./ui/carousel";
 import Container from "./container";
-import { Button } from "./ui/button";
-import { Play, Info, ChevronLeft, ChevronRight, Star } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Clapperboard,
+  History,
+  Play,
+  Search,
+  Sparkles,
+  Star,
+} from "lucide-react";
 import { ROUTES } from "@/constants/routes";
 import { MediaList } from "@/types/miruro-api";
 
@@ -23,228 +31,306 @@ type IHeroSectionProps = {
 const HeroSection = ({ spotlightAnime, isDataLoading }: IHeroSectionProps) => {
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
+  const featured = spotlightAnime?.[current] || spotlightAnime?.[0];
 
   useEffect(() => {
     if (!api) return;
-    setCurrent(api.selectedScrollSnap());
-    api.on("select", () => {
-      setCurrent(api.selectedScrollSnap());
-    });
+    const updateCurrent = () => setCurrent(api.selectedScrollSnap());
+    updateCurrent();
+    api.on("select", updateCurrent);
   }, [api]);
 
-  if (isDataLoading || !spotlightAnime?.length) {
-    return <HeroLoadingSkeleton />;
-  }
+  if (isDataLoading) return <HeroLoadingSkeleton />;
+  if (!spotlightAnime?.length) return <FallbackHero />;
 
   return (
-    <div className="relative w-full h-[85vh] min-h-[580px] max-h-[860px] overflow-hidden select-none bg-[#07090e]">
-      <Carousel
-        className="w-full h-full"
-        setApi={setApi}
-        opts={{ loop: true, align: "start" }}
-      >
-        <CarouselContent className="h-full ml-0">
-          {spotlightAnime.map((anime, index) => (
-            <CarouselItem key={anime.id || index} className="pl-0 h-full overflow-hidden">
-              <HeroCanvasItem anime={anime} isActive={index === current} />
-            </CarouselItem>
-          ))}
-        </CarouselContent>
-      </Carousel>
-
-      {/* Mini Thumbnail Dock & Navigation controls */}
-      <div className="absolute right-4 md:right-12 bottom-8 z-30 flex items-center gap-4">
-        {/* Thumbnail Preview Strip (visible on md+) */}
-        <div className="hidden lg:flex items-center gap-2 p-1.5 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10">
-          {spotlightAnime.slice(0, 6).map((anime, idx) => {
-            const thumb =
-              anime.coverImage?.large ||
-              anime.coverImage?.extraLarge ||
-              anime.bannerImage ||
-              "";
-            const isSelected = idx === current;
-            return (
-              <button
-                key={anime.id || idx}
-                onClick={() => api?.scrollTo(idx)}
-                className={`relative w-11 h-14 rounded-lg overflow-hidden transition-all duration-300 ${isSelected
-                  ? "ring-2 ring-indigo-400 scale-105 opacity-100"
-                  : "opacity-45 hover:opacity-80 scale-95"
-                  }`}
-                aria-label={`Jump to ${anime.title?.english || anime.title?.romaji}`}
+    <div className="relative">
+      <section className="relative isolate h-[650px] min-h-[620px] max-h-[760px] overflow-hidden bg-[#07090e] sm:h-[680px] lg:h-[710px]">
+        <Carousel
+          className="h-full w-full"
+          setApi={setApi}
+          opts={{ loop: spotlightAnime.length > 1, align: "start" }}
+        >
+          <CarouselContent className="ml-0 h-full">
+            {spotlightAnime.slice(0, 6).map((anime, index) => (
+              <CarouselItem
+                key={anime.id || index}
+                className="h-full pl-0"
               >
-                <Image
-                  src={thumb}
-                  alt={anime.title?.english || "Spotlight thumbnail"}
-                  fill
-                  className="object-cover"
-                  sizes="44px"
-                  unoptimized
-                />
-              </button>
-            );
-          })}
-        </div>
+                <HeroCanvasItem anime={anime} />
+              </CarouselItem>
+            ))}
+          </CarouselContent>
+        </Carousel>
 
-        {/* Next / Prev Controls */}
-        <div className="flex items-center gap-2">
-          <Button
-            size="icon"
+        <div className="absolute bottom-6 right-4 z-30 flex items-center gap-3 sm:bottom-8 sm:right-8 lg:right-12">
+          <div className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-3 py-2 backdrop-blur-xl sm:flex">
+            {spotlightAnime.slice(0, 6).map((anime, index) => (
+              <button
+                key={anime.id || index}
+                type="button"
+                onClick={() => api?.scrollTo(index)}
+                aria-label={"Show spotlight " + (index + 1)}
+                aria-current={current === index ? "true" : undefined}
+                className={
+                  "h-1.5 rounded-full transition-all " +
+                  (current === index
+                    ? "w-7 bg-teal-300"
+                    : "w-1.5 bg-white/35 hover:bg-white/70")
+                }
+              />
+            ))}
+          </div>
+          <button
+            type="button"
             onClick={() => api?.scrollPrev()}
-            className="h-10 w-10 rounded-full bg-slate-900/80 border border-white/15 text-white backdrop-blur-md hover:bg-indigo-600 hover:border-indigo-500 transition-all shadow-lg"
-            aria-label="Previous Spotlight"
+            aria-label="Previous spotlight"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-slate-950/70 text-white backdrop-blur-lg transition hover:border-teal-300/60 hover:bg-teal-500/20"
           >
             <ChevronLeft className="h-5 w-5" />
-          </Button>
-          <Button
-            size="icon"
+          </button>
+          <button
+            type="button"
             onClick={() => api?.scrollNext()}
-            className="h-10 w-10 rounded-full bg-slate-900/80 border border-white/15 text-white backdrop-blur-md hover:bg-indigo-600 hover:border-indigo-500 transition-all shadow-lg"
-            aria-label="Next Spotlight"
+            aria-label="Next spotlight"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-slate-950/70 text-white backdrop-blur-lg transition hover:border-teal-300/60 hover:bg-teal-500/20"
           >
             <ChevronRight className="h-5 w-5" />
-          </Button>
+          </button>
         </div>
-      </div>
+      </section>
+
+      <Container className="relative z-20 -mt-1 pb-8 sm:pb-10">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+          <FeatureTile
+            icon={<Sparkles className="h-5 w-5" />}
+            title="Discover your next favourite"
+            description="Spotlights, trending picks and seasonal anime."
+          />
+          <FeatureTile
+            icon={<History className="h-5 w-5" />}
+            title="Pick up where you left off"
+            description="Your continue-watching history stays on this device."
+          />
+          <FeatureTile
+            icon={<Clapperboard className="h-5 w-5" />}
+            title="Keep the episodes coming"
+            description="Find recently updated series in one place."
+          />
+        </div>
+      </Container>
     </div>
   );
 };
 
-const HeroCanvasItem = ({
-  anime,
-  isActive,
-}: {
-  anime: MediaList;
-  isActive: boolean;
-}) => {
-  const bgImage =
+const HeroCanvasItem = ({ anime }: { anime: MediaList }) => {
+  const background =
     anime.bannerImage ||
     anime.coverImage?.extraLarge ||
     anime.coverImage?.large ||
     "";
-
-  const englishTitle = anime.title?.english;
-  const romajiTitle = anime.title?.romaji;
-  const primaryTitle = englishTitle || romajiTitle || anime.title?.native || "Untitled";
-  const subtitle = englishTitle && romajiTitle && englishTitle !== romajiTitle ? romajiTitle : anime.title?.native || "";
-
-  const cleanDescription = (anime as any).description
-    ? (anime as any).description.replace(/<[^>]*>?/gm, "").trim()
-    : "Discover this breathtaking anime on AnimeTeal.";
+  const title =
+    anime.title?.english ||
+    anime.title?.romaji ||
+    anime.title?.native ||
+    "Featured anime";
+  const secondaryTitle =
+    anime.title?.english &&
+    anime.title?.romaji &&
+    anime.title.english !== anime.title.romaji
+      ? anime.title.romaji
+      : null;
+  const watchHref =
+    ROUTES.WATCH + "?anime=" + encodeURIComponent(String(anime.id)) + "&ep=1";
+  const detailsHref = ROUTES.ANIME_DETAILS + "/" + anime.id;
 
   return (
-    <div className="relative w-full h-[85vh] min-h-[580px] max-h-[860px] overflow-hidden">
-      {/* Background Banner with Dynamic Glow */}
-      <div
-        className={`absolute inset-0 bg-cover bg-center transition-transform duration-1000 ${isActive ? "scale-105" : "scale-100"
-          }`}
-        style={{ backgroundImage: `url(${bgImage})` }}
-      />
+    <div
+      className="relative flex h-full min-h-[620px] items-center overflow-hidden bg-[#080d13] bg-cover bg-center"
+      style={background ? { backgroundImage: "url(" + background + ")" } : undefined}
+    >
+      <div className="absolute inset-0 bg-gradient-to-r from-[#07090e] via-[#07090e]/90 to-[#07090e]/35" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#07090e] via-[#07090e]/25 to-[#07090e]/35" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_78%_42%,rgba(20,184,166,0.18),transparent_42%)]" />
 
-      {/* Atmospheric Overlays */}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#07090e] via-[#07090e]/85 to-transparent z-10" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#07090e] via-[#07090e]/50 to-transparent z-10" />
-      <div className="absolute inset-0 bg-radial-gradient from-transparent via-[#07090e]/40 to-[#07090e] z-10" />
+      <Container className="relative z-10 grid h-full w-full grid-cols-1 items-center gap-8 pb-24 pt-24 md:grid-cols-[minmax(0,1fr)_270px] md:pb-28 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="max-w-3xl">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-teal-300/20 bg-teal-300/10 px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.2em] text-teal-200 sm:text-xs">
+            <span className="h-2 w-2 rounded-full bg-teal-300 shadow-[0_0_12px_rgba(94,234,212,0.85)]" />
+            Your anime destination
+          </div>
 
-      {/* Content Stage */}
-      <div className="relative z-20 w-full h-full flex items-center">
-        <Container className="w-full pt-16 pb-12">
-          <div
-            className={`max-w-2xl space-y-4 transition-all duration-700 ${isActive ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
-              }`}
-          >
-            {/* Main Title & Subtitle */}
-            <div className="space-y-1">
-              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.1] line-clamp-2 drop-shadow-md">
-                {primaryTitle}
-              </h1>
-              {subtitle && (
-                <p className="text-sm md:text-base font-medium text-slate-400/90 tracking-wide">
-                  {subtitle}
-                </p>
-              )}
-            </div>
+          <h1 className="max-w-3xl text-[2.55rem] font-black leading-[1.04] tracking-tight text-white sm:text-5xl lg:text-6xl xl:text-7xl">
+            Your next
+            <span className="block bg-gradient-to-r from-teal-200 via-cyan-300 to-sky-300 bg-clip-text text-transparent">
+              anime obsession
+            </span>
+            starts here.
+          </h1>
 
-            {/* Meta Tags Row */}
-            <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-300 pt-1">
-              {anime.format && (
-                <span className="px-2.5 py-0.5 rounded-md font-bold tracking-wider bg-violet-600/80 text-white shadow-sm">
-                  {anime.format}
-                </span>
-              )}
-              {!!anime.averageScore && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                  {anime.averageScore}%
-                </span>
-              )}
-              {anime.seasonYear && (
-                <span className="px-2.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300">
-                  {anime.season ? `${anime.season} ` : ""}{anime.seasonYear}
-                </span>
-              )}
-              <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-bold text-[10px]">
-                HD 1080P
+          <p className="mt-5 max-w-xl text-sm leading-7 text-slate-200/85 sm:text-base sm:leading-8">
+            Discover new worlds, find your next favourite series, and keep
+            watching without losing your place. Welcome to AnimeTeal.
+          </p>
+
+          <div className="mt-6 flex flex-wrap items-center gap-2 text-xs text-slate-200/80 sm:text-sm">
+            {anime.format && <MetaPill>{anime.format}</MetaPill>}
+            {anime.seasonYear && (
+              <MetaPill>
+                {anime.season ? anime.season + " " : ""}
+                {anime.seasonYear}
+              </MetaPill>
+            )}
+            {anime.averageScore ? (
+              <MetaPill>
+                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                {anime.averageScore}%
+              </MetaPill>
+            ) : null}
+            {anime.genres?.slice(0, 2).map((genre) => (
+              <MetaPill key={genre}>{genre}</MetaPill>
+            ))}
+          </div>
+
+          <div className="mt-8 flex flex-col gap-3 min-[420px]:flex-row">
+            <Link
+              href={watchHref}
+              className="inline-flex min-h-12 items-center justify-center gap-2.5 rounded-xl bg-teal-300 px-6 py-3 text-sm font-extrabold text-slate-950 shadow-lg shadow-teal-950/30 transition hover:-translate-y-0.5 hover:bg-teal-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            >
+              <Play className="h-4 w-4 fill-current" />
+              Watch featured anime
+            </Link>
+            <Link
+              href={ROUTES.SEARCH}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-6 py-3 text-sm font-bold text-white backdrop-blur-lg transition hover:border-teal-200/50 hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-200"
+            >
+              <Search className="h-4 w-4" />
+              Explore anime
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <p className="mt-5 text-xs text-slate-300/70">
+            No account required for local continue-watching history.
+          </p>
+        </div>
+
+        <div className="hidden md:flex md:justify-end">
+          <div className="w-full max-w-[300px] rounded-3xl border border-white/15 bg-slate-950/55 p-5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
+            <div className="mb-5 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-teal-200">
+                In the spotlight
               </span>
-              {anime.genres?.slice(0, 3).map((g) => (
-                <span key={g} className="text-slate-400 font-medium">
-                  • {g}
+              <span className="rounded-full border border-teal-300/20 bg-teal-300/10 px-2 py-1 text-[10px] font-semibold text-teal-100">
+                Featured
+              </span>
+            </div>
+            <div className="mb-3 h-1 w-12 rounded-full bg-teal-300" />
+            <h2 className="line-clamp-3 text-2xl font-extrabold leading-tight text-white lg:text-3xl">
+              {title}
+            </h2>
+            {secondaryTitle && (
+              <p className="mt-2 line-clamp-2 text-sm text-slate-300">
+                {secondaryTitle}
+              </p>
+            )}
+            <div className="mt-5 flex flex-wrap gap-2">
+              {anime.status && (
+                <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[11px] font-medium text-slate-200">
+                  {anime.status.replaceAll("_", " ")}
                 </span>
-              ))}
+              )}
+              {anime.episodes && (
+                <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[11px] font-medium text-slate-200">
+                  {anime.episodes} episodes
+                </span>
+              )}
             </div>
-
-            {/* Synopsis */}
-            <p className="text-sm md:text-base text-slate-300/85 line-clamp-3 leading-relaxed max-w-xl pt-1">
-              {cleanDescription}
-            </p>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-4 pt-3">
-              <Link
-                href={`${ROUTES.WATCH}?anime=${anime.id}&ep=1`}
-                className="inline-flex items-center gap-2.5 px-7 py-3 rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 hover:shadow-indigo-500/50 hover:scale-105 active:scale-95 transition-all duration-200"
-              >
-                <Play className="h-4 w-4 fill-white" />
-                <span>Watch Now</span>
-              </Link>
-
-              <Link
-                href={`${ROUTES.ANIME_DETAILS}/${anime.id}`}
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-sm backdrop-blur-md border border-white/10 transition-all duration-200 hover:scale-105 active:scale-95"
-              >
-                <Info className="h-4 w-4 text-slate-300" />
-                <span>Details</span>
-              </Link>
-            </div>
-          </div>
-        </Container>
-      </div>
-    </div>
-  );
-};
-
-const HeroLoadingSkeleton = () => {
-  return (
-    <div className="relative w-full h-[85vh] min-h-[580px] bg-[#07090e] flex items-center">
-      <Container className="w-full">
-        <div className="max-w-xl space-y-4">
-          <div className="h-6 w-36 rounded-full bg-slate-800/80 animate-pulse" />
-          <div className="h-14 w-4/5 rounded-2xl bg-slate-800/80 animate-pulse" />
-          <div className="h-5 w-1/2 rounded-lg bg-slate-800/60 animate-pulse" />
-          <div className="flex gap-2">
-            <div className="h-6 w-16 rounded-md bg-slate-800/60 animate-pulse" />
-            <div className="h-6 w-16 rounded-md bg-slate-800/60 animate-pulse" />
-            <div className="h-6 w-24 rounded-md bg-slate-800/60 animate-pulse" />
-          </div>
-          <div className="h-16 w-full rounded-xl bg-slate-800/50 animate-pulse" />
-          <div className="flex gap-4 pt-2">
-            <div className="h-12 w-36 rounded-xl bg-slate-800 animate-pulse" />
-            <div className="h-12 w-28 rounded-xl bg-slate-800/60 animate-pulse" />
+            <Link
+              href={detailsHref}
+              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-bold text-white transition hover:border-teal-200/50 hover:bg-teal-300/10"
+            >
+              View anime details
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </Container>
     </div>
   );
 };
+
+const MetaPill = ({ children }: { children: React.ReactNode }) => (
+  <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 backdrop-blur-md">
+    {children}
+  </span>
+);
+
+const FeatureTile = ({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) => (
+  <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-white/[0.08] bg-[#0c121b]/90 p-4 shadow-lg shadow-black/10 sm:p-5">
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-teal-300/15 bg-teal-300/10 text-teal-200">
+      {icon}
+    </div>
+    <div className="min-w-0">
+      <h3 className="text-sm font-bold text-white">{title}</h3>
+      <p className="mt-1 text-xs leading-5 text-slate-400">{description}</p>
+    </div>
+  </div>
+);
+
+const FallbackHero = () => (
+  <section className="relative flex min-h-[620px] items-center overflow-hidden bg-[#07090e] pt-20">
+    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_72%_35%,rgba(20,184,166,0.2),transparent_45%)]" />
+    <Container className="relative z-10 py-20">
+      <div className="max-w-3xl">
+        <p className="mb-5 text-xs font-bold uppercase tracking-[0.22em] text-teal-200">
+          AnimeTeal · Discover · Watch · Enjoy
+        </p>
+        <h1 className="text-5xl font-black leading-tight text-white sm:text-6xl">
+          Your next
+          <span className="block text-teal-200">anime obsession</span>
+          starts here.
+        </h1>
+        <p className="mt-5 max-w-xl text-base leading-8 text-slate-300">
+          Explore anime, browse what is trending, and find something worth
+          staying up for.
+        </p>
+        <Link
+          href={ROUTES.SEARCH}
+          className="mt-8 inline-flex min-h-12 items-center gap-2 rounded-xl bg-teal-300 px-6 py-3 text-sm font-extrabold text-slate-950 transition hover:bg-teal-200"
+        >
+          <Search className="h-4 w-4" />
+          Explore anime
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+    </Container>
+  </section>
+);
+
+const HeroLoadingSkeleton = () => (
+  <section className="flex min-h-[620px] items-center bg-[#07090e] pt-20">
+    <Container className="w-full py-20">
+      <div className="max-w-2xl space-y-5">
+        <div className="h-8 w-48 animate-pulse rounded-full bg-slate-800" />
+        <div className="h-14 w-4/5 animate-pulse rounded-xl bg-slate-800 sm:h-16" />
+        <div className="h-5 w-3/5 animate-pulse rounded-lg bg-slate-800/80" />
+        <div className="h-5 w-2/5 animate-pulse rounded-lg bg-slate-800/70" />
+        <div className="flex gap-3 pt-4">
+          <div className="h-12 w-48 animate-pulse rounded-xl bg-slate-800" />
+          <div className="h-12 w-36 animate-pulse rounded-xl bg-slate-800/70" />
+        </div>
+      </div>
+    </Container>
+  </section>
+);
 
 export default HeroSection;

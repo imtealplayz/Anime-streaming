@@ -1,5 +1,5 @@
 import "./globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 
 import NavBar from "@/components/navbar";
@@ -21,6 +21,12 @@ const APP_NAME = "AnimeTeal";
 const APP_DEFAULT_TITLE = "AnimeTeal - Anime Streaming";
 const APP_DESCRIPTION =
   "Discover anime, explore episodes, and continue watching with AnimeTeal.";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#07090e",
+};
 
 export const metadata: Metadata = {
   applicationName: APP_NAME,
@@ -68,7 +74,7 @@ export default function RootLayout({
         {gaId && (
           <>
             <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+              src={"https://www.googletagmanager.com/gtag/js?id=" + gaId}
               strategy="afterInteractive"
             />
             <Script id="google-analytics" strategy="afterInteractive">
@@ -83,7 +89,7 @@ export default function RootLayout({
         <PublicEnvScript />
       </head>
       <body
-        className={`${geistSans.className} antialiased max-w-[100vw] overflow-x-hidden`}
+        className={geistSans.className + " antialiased max-w-[100vw] overflow-x-hidden"}
       >
         <ThemeProvider
           attribute="class"
