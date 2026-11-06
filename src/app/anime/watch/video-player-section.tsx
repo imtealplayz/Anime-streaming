@@ -8,7 +8,7 @@ const AnimeTealPlayer = dynamic(() => import("@/components/animeteal-player"), {
   ssr: false,
 });
 import { useGetEpisodeData } from "@/query/get-episode-data";
-import { Captions, Mic, AlertCircle, Tv, Server } from "lucide-react";
+import { Captions, Mic, AlertCircle, Tv } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 import { useGetAllEpisodes } from "@/query/get-all-episodes";
 
-import useBookMarks from "@/hooks/use-get-bookmark";
+import type { IEpisodeSource } from "@/types/episodes";
 import { useGetSourceAvailable } from "@/query/get-source-available";
 
 const VideoPlayerSection = () => {
@@ -52,7 +52,6 @@ const VideoPlayerSection = () => {
   const isPrimaryDisabled = isSourceAvailable === false;
 
   const [useFallback, setUseFallback] = useState<boolean>(false);
-  const [fallbackServer, setFallbackServer] = useState<"megaplay" | "vidlink" | "autoembed">("megaplay");
 
   const { data: episodeData, isLoading: isLoadingData } =
     useGetEpisodeData(activeEpisodeId, !isPrimaryDisabled && !useFallback);
@@ -60,15 +59,11 @@ const VideoPlayerSection = () => {
   const [autoSkip, setAutoSkip] = useState<boolean>(true);
   const [preferredCategory, setPreferredCategory] = useState<"sub" | "dub">("sub");
 
-  const { createOrUpdateBookMark, syncWatchProgress } = useBookMarks({
-    animeID: animeIdParam,
-    populate: false,
-  });
-
-  const fallbackBookmarkIdRef = React.useRef<string | null>(null);
-  const fallbackWatchedRecordIdRef = React.useRef<string | null>(null);
-  const lastSyncedTimeRef = React.useRef<number>(0);
-  const lastLocalWatchWriteRef = React.useRef<number>(0);
+  const [anirakuFallbackData, setAnirakuFallbackData] = useState<IEpisodeSource | null>(null);
+  const [anirakuFallbackLoading, setAnirakuFallbackLoading] = useState(false);
+  const [anirakuFallbackError, setAnirakuFallbackError] = useState("");
+  const [anirakuFallbackProvider, setAnirakuFallbackProvider] = useState("Aniraku");
+  const [anirakuRetryKey, setAnirakuRetryKey] = useState(0);
 
   useEffect(() => {
     setUseFallback(false);
@@ -155,140 +150,6 @@ const VideoPlayerSection = () => {
     useFallback ||
     (!isLoadingData && (!episodeData || !episodeData.sources?.length));
 
-  // Listen to postMessage events from Fallback Player iframe (megaplay.buzz / megacloud)
-  const saveLocalWatchProgress = (currentTime: number) => {
-    if (typeof window === "undefined" || currentTime < 10) return;
-
-    const now = Date.now();
-    if (now - lastLocalWatchWriteRef.current < 10000) return;
-
-    const animeInfo = anime?.anime?.info;
-    const animeId = animeIdParam || animeInfo?.id;
-    if (!animeId) return;
-
-    const episodeNumber = String(Number(currentEpNumber) || 1);
-    try {
-      const stored = localStorage.getItem("watched");
-      const history = stored ? JSON.parse(stored) : [];
-      const entries = Array.isArray(history) ? history : [];
-      const existingIndex = entries.findIndex((item: any) => item?.anime?.id === animeId);
-      const entry = existingIndex >= 0
-        ? entries[existingIndex]
-        : { anime: { id: animeId, title: animeInfo?.name || "Anime", poster: animeInfo?.poster || "" }, episodes: [] };
-
-      const episodes = Array.isArray(entry.episodes) ? entry.episodes.map(String) : [];
-      const previousIndex = episodes.indexOf(episodeNumber);
-      if (previousIndex >= 0) episodes.splice(previousIndex, 1);
-      episodes.push(episodeNumber);
-      entry.anime = { id: animeId, title: animeInfo?.name || "Anime", poster: animeInfo?.poster || "" };
-      entry.episodes = episodes;
-
-      if (existingIndex >= 0) entries.splice(existingIndex, 1);
-      entries.push(entry);
-      localStorage.setItem("watched", JSON.stringify(entries));
-      window.dispatchEvent(new Event("animeteal:watch-history-updated"));
-      lastLocalWatchWriteRef.current = now;
-    } catch (error) {
-      console.warn("Could not save local watch history:", error);
-    }
-  };
-
-  useEffect(() => {
-    fallbackWatchedRecordIdRef.current = null;
-    lastSyncedTimeRef.current = 0;
-
-    if (!isFallbackActive || !animeIdParam || !activeEpisodeId) return;
-
-    let isMounted = true;
-
-    const initBookmark = async () => {
-      const animeName = anime?.anime?.info?.name || "Anime";
-      const poster = anime?.anime?.info?.poster || "";
-      const bId = await createOrUpdateBookMark(
-        animeIdParam,
-        animeName,
-        poster,
-        "watching",
-        false,
-      );
-      if (isMounted) {
-        fallbackBookmarkIdRef.current = bId;
-      }
-    };
-
-    initBookmark();
-
-    const handleIframeMessage = async (event: MessageEvent) => {
-      let data = event.data;
-      if (typeof data === "string") {
-        try {
-          data = JSON.parse(data);
-        } catch {
-          return;
-        }
-      }
-
-      if (!data || typeof data !== "object") return;
-
-      // Extract currentTime and duration from time/watching-log events
-      let currentTime: number | null = null;
-      let duration: number | null = null;
-
-      if (typeof data.currentTime === "number") {
-        currentTime = data.currentTime;
-      } else if (typeof data.time === "number") {
-        currentTime = data.time;
-      }
-
-      if (typeof data.duration === "number") {
-        duration = data.duration;
-      }
-
-      const isComplete = data.event === "complete";
-
-      if (currentTime !== null && duration !== null && duration > 0) {
-        const now = Math.floor(currentTime);
-        // Throttle updates every 10 seconds or on complete
-        if (isComplete || Math.abs(now - lastSyncedTimeRef.current) >= 10) {
-          lastSyncedTimeRef.current = now;
-          saveLocalWatchProgress(currentTime);
-
-          if (fallbackBookmarkIdRef.current) {
-            const recordId = await syncWatchProgress(
-              fallbackBookmarkIdRef.current,
-              fallbackWatchedRecordIdRef.current,
-              {
-                episodeId: activeEpisodeId,
-                episodeNumber: Number(currentEpNumber) || 1,
-                current: currentTime,
-                duration: duration,
-              },
-            );
-            if (recordId && isMounted) {
-              fallbackWatchedRecordIdRef.current = recordId;
-            }
-          }
-        }
-      }
-    };
-
-    window.addEventListener("message", handleIframeMessage);
-    return () => {
-      isMounted = false;
-      window.removeEventListener("message", handleIframeMessage);
-    };
-  }, [
-    useFallback,
-    isLoadingData,
-    episodeData,
-    activeEpisodeId,
-    animeIdParam,
-    anime,
-    currentEpNumber,
-    createOrUpdateBookMark,
-    syncWatchProgress,
-  ]);
-
   const handleProviderSelect = (pName: string, category: "sub" | "dub") => {
     setPreferredCategory(category);
     localStorage.setItem("preferredCategory", category);
@@ -305,130 +166,215 @@ const VideoPlayerSection = () => {
   const currentProviderName = cleanParts[1] || providerNames[0] || "kiwi";
   const activeCategory = cleanParts[3] === "dub" ? "dub" : preferredCategory;
 
+  useEffect(() => {
+    if (!isFallbackActive) {
+      setAnirakuFallbackData(null);
+      setAnirakuFallbackError("");
+      setAnirakuFallbackLoading(false);
+      return;
+    }
+
+    const animeId = Number(animeIdParam);
+    const episode = Number(currentEpNumber);
+    if (!Number.isInteger(animeId) || animeId <= 0 || !Number.isInteger(episode) || episode <= 0) {
+      setAnirakuFallbackLoading(false);
+      setAnirakuFallbackError("This episode is missing a valid AniList ID or episode number.");
+      return;
+    }
+
+    const controller = new AbortController();
+    let isCurrent = true;
+    setAnirakuFallbackData(null);
+    setAnirakuFallbackError("");
+    setAnirakuFallbackLoading(true);
+
+    const params = new URLSearchParams({
+      animeId: String(animeId),
+      episode: String(episode),
+      lang: activeCategory,
+    });
+
+    fetch("/api/aniraku/servers?" + params.toString(), {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || "Stream discovery returned HTTP " + response.status + ".");
+        }
+        return Array.isArray(payload) ? payload : [];
+      })
+      .then((servers: any[]) => {
+        const candidates = servers.flatMap((server) =>
+          (Array.isArray(server?.sources) ? server.sources : []).map((source: any) => ({
+            server,
+            source,
+          })),
+        );
+
+        const selected = candidates.find(({ source }) => {
+          const type = String(source?.type || "").toLowerCase();
+          const verdict = String(source?.verification || "").toLowerCase();
+          return (
+            typeof source?.url === "string" &&
+            source.url.startsWith("https://") &&
+            (type === "hls" || type === "m3u8") &&
+            verdict !== "dead" &&
+            verdict !== "embed"
+          );
+        });
+
+        if (!selected) {
+          throw new Error("Aniraku did not return a direct HLS stream for this episode. No third-party redirect player was loaded.");
+        }
+
+        const subtitles = (Array.isArray(selected.source.subtitles) ? selected.source.subtitles : [])
+          .filter((track: any) => typeof track?.url === "string" && track.url.startsWith("https://"))
+          .map((track: any) => ({
+            lang: track.label || track.lang || "Subtitle",
+            url: track.url,
+          }));
+
+        const episodeData: IEpisodeSource = {
+          headers: {
+            Referer: selected.server?.headers?.Referer || selected.server?.headers?.referer || "",
+          },
+          subtitles,
+          intro: { start: 0, end: 0 },
+          outro: { start: 0, end: 0 },
+          sources: [{ url: selected.source.url, type: "m3u8" }],
+          anilistID: animeId,
+          malID: 0,
+        };
+
+        if (!isCurrent) return;
+        setAnirakuFallbackProvider(selected.server?.name || selected.server?.provider || "Aniraku");
+        setAnirakuFallbackData(episodeData);
+        setAnirakuFallbackLoading(false);
+      })
+      .catch((error) => {
+        if (!isCurrent || controller.signal.aborted) return;
+        setAnirakuFallbackError(error instanceof Error ? error.message : "Could not find a direct stream.");
+        setAnirakuFallbackLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+      controller.abort();
+    };
+  }, [isFallbackActive, animeIdParam, currentEpNumber, activeCategory, anirakuRetryKey]);
+
+
   if (!activeEpisodeId || isLoadingData) {
     return (
       <div className="h-auto aspect-video lg:max-h-[calc(100vh-150px)] min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] w-full animate-pulse bg-slate-800 rounded-xl"></div>
     );
   }
 
-  // Fallback player if API stream fails, throws error, returns no sources, or sys_source_available is false
+  // When the legacy stream fails, discover a direct HLS source and use AnimeTeal's native player.
   if (isFallbackActive) {
-    const fallbackAnimeId = animeIdParam || anime?.anime?.info?.id || "1";
-    const fallbackEpId = currentEpNumber || "1";
-    let fallbackSrc = `https://megaplay.buzz/stream/ani/${fallbackAnimeId}/${fallbackEpId}/${activeCategory}`;
-    let fallbackLabel = "MegaPlay";
-    if (fallbackServer === "vidlink") {
-      fallbackSrc = `https://vidlink.pro/anime/${fallbackAnimeId}/${fallbackEpId}?sub=${activeCategory === "sub" ? 1 : 0}`;
-      fallbackLabel = "VidLink";
-    } else if (fallbackServer === "autoembed") {
-      fallbackSrc = `https://player.autoembed.cc/embed/anime/${fallbackAnimeId}/${fallbackEpId}`;
-      fallbackLabel = "Autoembed";
+    const fallbackAnimeId = animeIdParam || anime?.anime?.info?.id || "0";
+    const playerInfo = {
+      id: fallbackAnimeId,
+      title: anime?.anime?.info?.name || "Anime",
+      image: anime?.anime?.info?.poster || "",
+    };
+
+    if (anirakuFallbackLoading) {
+      return (
+        <div className="flex aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] w-full items-center justify-center rounded-xl border border-slate-800 bg-black text-sm text-slate-300">
+          Finding a direct stream for Episode {currentEpNumber}…
+        </div>
+      );
+    }
+
+    if (!anirakuFallbackData) {
+      return (
+        <div className="flex aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] w-full flex-col items-center justify-center gap-4 rounded-xl border border-slate-800 bg-black p-6 text-center">
+          <Tv className="h-8 w-8 text-cyan-400" />
+          <div className="max-w-xl space-y-2">
+            <h3 className="text-lg font-bold text-white">No direct stream available</h3>
+            <p className="text-sm leading-relaxed text-slate-400">
+              {anirakuFallbackError || "AnimeTeal could not find a playable HLS source for this episode."}
+            </p>
+            <p className="text-xs text-slate-500">
+              Third-party redirect embeds are intentionally not loaded. Try discovering sources again.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setAnirakuRetryKey((value) => value + 1)}
+            className="bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+          >
+            Retry source search
+          </Button>
+        </div>
+      );
     }
 
     return (
       <div className="flex flex-col gap-4 w-full">
-        <div className="relative w-full h-auto aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] max-h-[500px] lg:max-h-[calc(100vh-150px)] bg-black overflow-hidden rounded-xl border border-slate-800">
-          <iframe
-            key={`${fallbackServer}-${fallbackAnimeId}-${fallbackEpId}-${activeCategory}`}
-            src={fallbackSrc}
-            title={`AnimeTeal ${fallbackLabel} video player`}
-            width="100%"
-            height="100%"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
-            allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-            referrerPolicy="strict-origin-when-cross-origin"
-            allowFullScreen
-            loading="eager"
-            className="w-full h-full border-0"
-          ></iframe>
-        </div>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-4 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 shadow-lg">
+        <AnimeTealPlayer
+          key={anirakuFallbackData.sources[0]?.url}
+          episodeInfo={anirakuFallbackData}
+          serversData={{
+            episodeId: activeEpisodeId,
+            episodeNo: String(currentEpNumber),
+            sub: activeCategory === "sub" ? [{ serverId: 1, serverName: anirakuFallbackProvider }] : [],
+            dub: activeCategory === "dub" ? [{ serverId: 1, serverName: anirakuFallbackProvider }] : [],
+            raw: [],
+          }}
+          animeInfo={playerInfo}
+          subOrDub={activeCategory}
+          autoSkip={autoSkip}
+          onError={() => {
+            setAnirakuFallbackData(null);
+            setAnirakuFallbackError("The direct stream failed to start. Try searching for another source.");
+          }}
+        />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4 shadow-lg">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-bold text-slate-400 tracking-wider">CATEGORY:</span>
+            <span className="text-xs font-bold tracking-wider text-slate-400">CATEGORY:</span>
             <Button
               size="sm"
               variant="ghost"
               disabled={!hasSub}
               onClick={() => handleCategoryChange("sub")}
-              className={`h-8 px-4 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition ${
-                activeCategory === "sub"
-                  ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold shadow-md shadow-cyan-500/25"
-                  : "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
+              className={
+                "h-8 rounded-xl px-4 text-xs font-semibold " +
+                (activeCategory === "sub"
+                  ? "bg-cyan-600 text-white"
+                  : "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white")
+              }
             >
-              <Captions className="h-3.5 w-3.5" /> SUB
+              <Captions className="mr-1.5 h-3.5 w-3.5" /> SUB
             </Button>
             <Button
               size="sm"
               variant="ghost"
               disabled={!hasDub}
               onClick={() => handleCategoryChange("dub")}
-              className={`h-8 px-4 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition ${
-                activeCategory === "dub"
-                  ? "bg-emerald-600 text-white font-bold shadow-md shadow-emerald-600/25"
-                  : "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
+              className={
+                "h-8 rounded-xl px-4 text-xs font-semibold " +
+                (activeCategory === "dub"
+                  ? "bg-emerald-600 text-white"
+                  : "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white")
+              }
             >
-              <Mic className="h-3.5 w-3.5" /> DUB
+              <Mic className="mr-1.5 h-3.5 w-3.5" /> DUB
             </Button>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-1">
-              <Server className="h-3.5 w-3.5 text-cyan-400" /> SERVER:
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setFallbackServer("megaplay")}
-              className={`h-8 px-3 text-xs font-semibold rounded-xl transition ${
-                fallbackServer === "megaplay"
-                  ? "bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/25 hover:bg-cyan-400"
-                  : "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
-            >
-              Megaplay
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setFallbackServer("vidlink")}
-              className={`h-8 px-3 text-xs font-semibold rounded-xl transition ${
-                fallbackServer === "vidlink"
-                  ? "bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/25 hover:bg-cyan-400"
-                  : "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
-            >
-              VidLink
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setFallbackServer("autoembed")}
-              className={`h-8 px-3 text-xs font-semibold rounded-xl transition ${
-                fallbackServer === "autoembed"
-                  ? "bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/25 hover:bg-cyan-400"
-                  : "bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
-            >
-              Autoembed
-            </Button>
-          </div>
-
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setUseFallback(false)}
-            className="h-8 px-3 text-xs border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-gray-200 flex items-center gap-1.5 shrink-0 self-start md:self-auto"
-          >
-            <Tv className="h-3.5 w-3.5 text-blue-400" /> Try Primary Player
-          </Button>
+          <span className="text-xs text-slate-500">
+            Direct HLS · {anirakuFallbackProvider} · AnimeTeal native player
+          </span>
         </div>
-        <Alert variant="default" className="border-violet-900/60 bg-violet-950/20 text-violet-300 rounded-xl">
-          <AlertCircle className="h-4 w-4 text-violet-400" />
-          <AlertTitle className="font-bold">AnimeTeal Stream Player Active</AlertTitle>
-          <AlertDescription className="text-xs text-violet-300/80 mt-1">
-            The player stays embedded. Browser restrictions prevent it from opening pop-ups or navigating away from AnimeTeal.
+        <Alert variant="default" className="rounded-xl border-emerald-900/60 bg-emerald-950/20 text-emerald-300">
+          <AlertCircle className="h-4 w-4 text-emerald-400" />
+          <AlertTitle className="font-bold">AnimeTeal native playback</AlertTitle>
+          <AlertDescription className="mt-1 text-xs text-emerald-300/80">
+            This episode is playing as a direct stream inside AnimeTeal. No third-party ad-click iframe is loaded.
           </AlertDescription>
         </Alert>
       </div>
