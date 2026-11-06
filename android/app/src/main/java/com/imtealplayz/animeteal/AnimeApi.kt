@@ -168,8 +168,1213 @@ class AnimeApi {
 
     suspend fun search(query: String, page: Int = 1): List<AnimeItem> {
         val gql = """
-            query ($$search: String!, $$page: Int!) {
+            query (${': String!, ${': Int!) {
               Page(page: $$page, perPage: 24) { media(search: $$search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search: String!, $$page: Int!) {
+              Page(page: $$page, perPage: 24) { media(search: ${', type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}page: Int!) {
+              Page(page: ${', perPage: 24) { media(search: $$search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search: String!, $$page: Int!) {
+              Page(page: $$page, perPage: 24) { media(search: ${', type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}page, perPage: 24) { media(search: $$search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search: String!, ${': Int!) {
+              Page(page: $$page, perPage: 24) { media(search: ${', type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}page: Int!) {
+              Page(page: ${', perPage: 24) { media(search: ${', type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}page, perPage: 24) { media(search: ${', type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
+              } }
+            }
+        """.trimIndent()
+        val data = anilist(gql, JSONObject().put("search", query).put("page", page))
+        return cards(data.optJSONObject("Page")?.optJSONArray("media"))
+    }
+
+    suspend fun detail(animeId: String): AnimeDetail {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val media = obj("/api/v1/anime/$id").let { it.optJSONObject("data") ?: it.optJSONObject("anime") ?: it }
+        val cover = media.optJSONObject("coverImage")
+        val genresArray = media.optJSONArray("genres")
+        val genres = if (genresArray == null) emptyList() else buildList {
+            for (i in 0 until genresArray.length()) genresArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+        }
+        val studios = media.optJSONObject("studios")?.optJSONArray("nodes")
+        val year = media.optJSONObject("startDate")?.optInt("year", 0) ?: 0
+        val duration = media.optInt("duration", 0)
+        return AnimeDetail(
+            item = card(media),
+            banner = text(media, "bannerImage").ifBlank { text(cover, "extraLarge", "large") },
+            description = clean(text(media, "description")),
+            status = text(media, "status").lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+            genres = genres,
+            studio = studios?.optJSONObject(0)?.optString("name").orEmpty(),
+            aired = year.takeIf { it > 0 }?.toString().orEmpty(),
+            duration = duration.takeIf { it > 0 }?.let { "$it min/ep" }.orEmpty(),
+        )
+    }
+
+    suspend fun episodes(animeId: String): List<EpisodeItem> {
+        val id = animeId.toLongOrNull() ?: throw IOException("This anime has an invalid catalogue ID.")
+        val data = obj("/api/v1/anime/$id/episodes").let { it.optJSONObject("data") ?: it }
+        val a = data.optJSONArray("episodes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val n = item.optInt("number", i + 1)
+                if (n > 0) add(EpisodeItem("$id:$n", n, text(item, "title").ifBlank { "Episode $n" },
+                    item.optBoolean("isFiller", item.optBoolean("filler", false))))
+            }
+        }.sortedBy { it.number }
+    }
+
+    private fun episodeKey(key: String): Pair<Long, Int> {
+        val parts = key.split(":", limit = 2)
+        val id = parts.getOrNull(0)?.toLongOrNull()
+        val ep = parts.getOrNull(1)?.toIntOrNull()
+        if (id == null || ep == null || id <= 0 || ep <= 0)
+            throw IOException("This saved episode uses an older source ID. Open the anime and select the episode again.")
+        return id to ep
+    }
+
+    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+        val (id, ep) = episodeKey(episodeId)
+        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        return buildList {
+            for (i in 0 until a.length()) {
+                val item = a.optJSONObject(i) ?: continue
+                val provider = text(item, "provider")
+                val name = text(item, "name", "provider")
+                if (provider.isNotBlank() && name.isNotBlank()) add(EpisodeServer(name, category, provider))
+            }
+        }.distinctBy { it.provider }
+    }
+
+    suspend fun source(episodeId: String, provider: String, category: String): StreamSource {
+        val (id, ep) = episodeKey(episodeId)
+        val request = JSONObject().put("animeId", id).put("episode", ep)
+            .put("provider", provider).put("lang", category).put("quality", "auto")
+        val data = obj("/api/v1/stream", body = request).let { it.optJSONObject("data") ?: it }
+        val sources = data.optJSONArray("sources") ?: JSONArray()
+        val chosen = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }.firstOrNull { item ->
+            val u = text(item, "url")
+            val t = text(item, "type", "mime").lowercase()
+            val verdict = text(item, "verification", "Verification").lowercase()
+            u.isNotBlank() && verdict != "dead" &&
+                (t.contains("hls") || t.contains("mpegurl") || t.contains("mp4") ||
+                    u.contains(".m3u8", true) || u.contains(".mp4", true))
+        } ?: throw IOException("The selected provider did not return a native HLS or MP4 stream.")
+
+        val headers = linkedMapOf("User-Agent" to userAgent, "Referer" to referer)
+        data.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { key -> h.optString(key).takeIf { it.isNotBlank() }?.let { headers[key] = it } }
+        }
+        val subArray = chosen.optJSONArray("subtitles") ?: data.optJSONArray("subtitles") ?: JSONArray()
+        val subtitles = buildList {
+            for (i in 0 until subArray.length()) {
+                val s = subArray.optJSONObject(i) ?: continue
+                val u = text(s, "url", "file")
+                if (u.isNotBlank()) add(StreamSubtitle(text(s, "lang", "label").ifBlank { "Subtitle" }, u))
+            }
+        }
+        val streamUrl = text(chosen, "url")
+        return StreamSource(streamUrl, text(chosen, "quality").ifBlank { "Auto" }, headers, subtitles,
+            text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" })
+    }
+}
+}search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
                 id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
               } }
             }
