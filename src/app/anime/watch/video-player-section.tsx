@@ -325,32 +325,48 @@ const VideoPlayerSection = () => {
       fallbackLabel = "Autoembed";
     }
 
+    // Use a sandboxed srcDoc wrapper around the provider. The provider's own iframe
+    // has no sandbox attribute to trip embed checks, but inherits the ancestor's
+    // restrictions: it can play media, while top-level navigation and pop-ups stay blocked.
+    const escapedFallbackSrc = fallbackSrc
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const fallbackFrameDocument = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="margin:0;width:100%;height:100%;overflow:hidden;background:#000">
+<iframe
+  src="${escapedFallbackSrc}"
+  title="${fallbackLabel} player"
+  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+  allowfullscreen
+  referrerpolicy="strict-origin-when-cross-origin"
+  style="display:block;width:100%;height:100%;border:0"
+></iframe>
+</body>
+</html>`;
+
     return (
       <div className="flex flex-col gap-4 w-full">
-        <div className="relative flex aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] max-h-[500px] lg:max-h-[calc(100vh-150px)] items-center justify-center overflow-hidden rounded-xl border border-slate-800 bg-[#07090e] p-6 text-center">
-          <div className="max-w-xl space-y-4">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-cyan-400/20 bg-cyan-400/10 text-cyan-300">
-              <Tv className="h-5 w-5" />
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-bold text-white">External player blocked in this tab</h3>
-              <p className="text-sm leading-relaxed text-slate-400">
-                Third-party fallback players can open pop-ups or redirect this page. AnimeTeal keeps them out of the embedded player so your current tab stays here.
-              </p>
-            </div>
-            <a
-              href={fallbackSrc}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              referrerPolicy="no-referrer"
-              className="inline-flex items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
-            >
-              Open {fallbackLabel} in a new tab ↗
-            </a>
-            <p className="text-xs text-slate-500">
-              The external provider may still display its own ads. Opening it will not replace your AnimeTeal tab.
-            </p>
-          </div>
+        <div className="relative w-full h-auto aspect-video min-h-[20vh] sm:min-h-[30vh] md:min-h-[40vh] lg:min-h-[60vh] max-h-[500px] lg:max-h-[calc(100vh-150px)] bg-black overflow-hidden rounded-xl border border-slate-800">
+          <iframe
+            key={`${fallbackServer}-${fallbackAnimeId}-${fallbackEpId}-${activeCategory}`}
+            srcDoc={fallbackFrameDocument}
+            title={`AnimeTeal ${fallbackLabel} video player`}
+            width="100%"
+            height="100%"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+            allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allowFullScreen
+            loading="eager"
+            className="w-full h-full border-0"
+          ></iframe>
         </div>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-4 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 shadow-lg">
           <div className="flex flex-wrap items-center gap-3">
@@ -438,7 +454,7 @@ const VideoPlayerSection = () => {
           <AlertCircle className="h-4 w-4 text-violet-400" />
           <AlertTitle className="font-bold">AnimeTeal Stream Player Active</AlertTitle>
           <AlertDescription className="text-xs text-violet-300/80 mt-1">
-            External embeds stay disabled here to prevent unexpected pop-ups. Open a provider separately when you choose to.
+            The player stays embedded. Browser restrictions prevent it from opening pop-ups or navigating away from AnimeTeal.
           </AlertDescription>
         </Alert>
       </div>
