@@ -26,32 +26,42 @@ const ContinueWatching = ({ loading }: Props) => {
   const [anime, setAnime] = useState<WatchedAnime[] | null>(null);
 
   useEffect(() => {
-    try {
-      const storedData = localStorage.getItem("watched");
-      const watchedAnimes: WatchedEntry[] = storedData ? JSON.parse(storedData) : [];
+    const refreshHistory = () => {
+      try {
+        const storedData = localStorage.getItem("watched");
+        const watchedAnimes: WatchedEntry[] = storedData ? JSON.parse(storedData) : [];
 
-      if (!Array.isArray(watchedAnimes)) {
-        localStorage.removeItem("watched");
+        if (!Array.isArray(watchedAnimes)) {
+          localStorage.removeItem("watched");
+          setAnime(null);
+          return;
+        }
+
+        const entries = watchedAnimes
+          .filter((item) => item?.anime?.id && Array.isArray(item.episodes) && item.episodes.length > 0)
+          .slice()
+          .reverse()
+          .map((item) => ({
+            id: item.anime.id,
+            name: item.anime.title,
+            poster: item.anime.poster,
+            episode: item.episodes[item.episodes.length - 1],
+          }));
+
+        setAnime(entries);
+      } catch (error) {
+        console.error("Could not read local watch history:", error);
         setAnime(null);
-        return;
       }
+    };
 
-      const entries = watchedAnimes
-        .filter((item) => item?.anime?.id && Array.isArray(item.episodes) && item.episodes.length > 0)
-        .slice()
-        .reverse()
-        .map((item) => ({
-          id: item.anime.id,
-          name: item.anime.title,
-          poster: item.anime.poster,
-          episode: item.episodes[item.episodes.length - 1],
-        }));
-
-      setAnime(entries);
-    } catch (error) {
-      console.error("Could not read local watch history:", error);
-      setAnime(null);
-    }
+    refreshHistory();
+    window.addEventListener("animeteal:watch-history-updated", refreshHistory);
+    window.addEventListener("focus", refreshHistory);
+    return () => {
+      window.removeEventListener("animeteal:watch-history-updated", refreshHistory);
+      window.removeEventListener("focus", refreshHistory);
+    };
   }, []);
 
   if (loading) return <LoadingSkeleton />;

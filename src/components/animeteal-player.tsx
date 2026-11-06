@@ -80,6 +80,7 @@ function AnimeTealPlayer({
   const lastUpdateTimeRef = useRef<number>(0);
   const hasMetMinWatchTimeRef = useRef<boolean>(false); // Track if min time met for this episode
   const initialSeekTimeRef = useRef<number | null>(null);
+  const lastLocalWatchWriteRef = useRef<number>(0);
 
   const { auth } = useAuthStore();
   const { createOrUpdateBookMark, syncWatchProgress } = useBookMarks({
@@ -295,6 +296,7 @@ function AnimeTealPlayer({
           skipTimesRef.current;
         const currentTime = art.currentTime;
         const duration = art.duration;
+      saveLocalWatchProgress(currentTime);
 
         let seekTarget: number | null = null;
         const resolvedOutroEnd =
@@ -485,6 +487,42 @@ function AnimeTealPlayer({
     const art = new Artplayer(finalOptions);
     artInstanceRef.current = art;
 
+    const saveLocalWatchProgress = (currentTime: number) => {
+      if (typeof window === "undefined" || currentTime < WATCH_PROGRESS_MIN_WATCH_TIME) return;
+
+      const now = Date.now();
+      if (now - lastLocalWatchWriteRef.current < WATCH_PROGRESS_UPDATE_INTERVAL) return;
+
+      const episodeNumber = String(Number.parseInt(serversData.episodeNo, 10) || 1);
+      try {
+        const stored = localStorage.getItem("watched");
+        const history = stored ? JSON.parse(stored) : [];
+        const entries = Array.isArray(history) ? history : [];
+        const existingIndex = entries.findIndex(
+          (item: any) => item?.anime?.id === animeInfo.id,
+        );
+
+        const entry = existingIndex >= 0
+          ? entries[existingIndex]
+          : { anime: { id: animeInfo.id, title: animeInfo.title, poster: animeInfo.image }, episodes: [] };
+
+        const episodes = Array.isArray(entry.episodes) ? entry.episodes.map(String) : [];
+        const previousIndex = episodes.indexOf(episodeNumber);
+        if (previousIndex >= 0) episodes.splice(previousIndex, 1);
+        episodes.push(episodeNumber);
+        entry.anime = { id: animeInfo.id, title: animeInfo.title, poster: animeInfo.image };
+        entry.episodes = episodes;
+
+        if (existingIndex >= 0) entries.splice(existingIndex, 1);
+        entries.push(entry);
+        localStorage.setItem("watched", JSON.stringify(entries));
+        window.dispatchEvent(new Event("animeteal:watch-history-updated"));
+        lastLocalWatchWriteRef.current = now;
+      } catch (error) {
+        console.warn("Could not save local watch history:", error);
+      }
+    };
+
     // --- Skip Logic Handler ---
     const handleTimeUpdate = () => {
       const art = artInstanceRef.current;
@@ -664,6 +702,7 @@ function AnimeTealPlayer({
     const handleInteractionUpdate = () => {
       const art = artInstanceRef.current;
       if (!art || !art.duration || art.duration <= 0) return;
+      saveLocalWatchProgress(art.currentTime);
       // Only update if min time met or record exists
       if (hasMetMinWatchTimeRef.current || watchedRecordIdRef.current) {
         console.log("Syncing progress on pause/seek.");
@@ -708,6 +747,8 @@ function AnimeTealPlayer({
         hls.destroy();
         hlsInstanceRef.current = null;
       }
+
+      if (art && art.duration > 0) saveLocalWatchProgress(art.currentTime);
 
       if (
         art &&

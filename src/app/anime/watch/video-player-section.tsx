@@ -68,6 +68,7 @@ const VideoPlayerSection = () => {
   const fallbackBookmarkIdRef = React.useRef<string | null>(null);
   const fallbackWatchedRecordIdRef = React.useRef<string | null>(null);
   const lastSyncedTimeRef = React.useRef<number>(0);
+  const lastLocalWatchWriteRef = React.useRef<number>(0);
 
   useEffect(() => {
     setUseFallback(false);
@@ -155,6 +156,43 @@ const VideoPlayerSection = () => {
     (!isLoadingData && (!episodeData || !episodeData.sources?.length));
 
   // Listen to postMessage events from Fallback Player iframe (megaplay.buzz / megacloud)
+  const saveLocalWatchProgress = (currentTime: number) => {
+    if (typeof window === "undefined" || currentTime < 10) return;
+
+    const now = Date.now();
+    if (now - lastLocalWatchWriteRef.current < 10000) return;
+
+    const animeInfo = anime?.anime?.info;
+    const animeId = animeIdParam || animeInfo?.id;
+    if (!animeId) return;
+
+    const episodeNumber = String(Number(currentEpNumber) || 1);
+    try {
+      const stored = localStorage.getItem("watched");
+      const history = stored ? JSON.parse(stored) : [];
+      const entries = Array.isArray(history) ? history : [];
+      const existingIndex = entries.findIndex((item: any) => item?.anime?.id === animeId);
+      const entry = existingIndex >= 0
+        ? entries[existingIndex]
+        : { anime: { id: animeId, title: animeInfo?.name || "Anime", poster: animeInfo?.poster || "" }, episodes: [] };
+
+      const episodes = Array.isArray(entry.episodes) ? entry.episodes.map(String) : [];
+      const previousIndex = episodes.indexOf(episodeNumber);
+      if (previousIndex >= 0) episodes.splice(previousIndex, 1);
+      episodes.push(episodeNumber);
+      entry.anime = { id: animeId, title: animeInfo?.name || "Anime", poster: animeInfo?.poster || "" };
+      entry.episodes = episodes;
+
+      if (existingIndex >= 0) entries.splice(existingIndex, 1);
+      entries.push(entry);
+      localStorage.setItem("watched", JSON.stringify(entries));
+      window.dispatchEvent(new Event("animeteal:watch-history-updated"));
+      lastLocalWatchWriteRef.current = now;
+    } catch (error) {
+      console.warn("Could not save local watch history:", error);
+    }
+  };
+
   useEffect(() => {
     fallbackWatchedRecordIdRef.current = null;
     lastSyncedTimeRef.current = 0;
@@ -213,6 +251,7 @@ const VideoPlayerSection = () => {
         // Throttle updates every 10 seconds or on complete
         if (isComplete || Math.abs(now - lastSyncedTimeRef.current) >= 10) {
           lastSyncedTimeRef.current = now;
+          saveLocalWatchProgress(currentTime);
 
           if (fallbackBookmarkIdRef.current) {
             const recordId = await syncWatchProgress(
