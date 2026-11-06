@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import React from "react";
 import {
-  AlertTriangle,
   ArrowDownToLine,
   ArrowRight,
   CheckCircle2,
@@ -82,9 +81,7 @@ const DownloadPage = () => {
                   </a>
                 </div>
                 <p className="mt-4 text-xs leading-5 text-slate-400">
-                  Current build: <strong className="text-slate-200">v2.2.0</strong>
-                  {" · "}Built 6 November 2026
-                  {" · "}Debug-signed APK
+                  Latest successful build{" · "}Debug-signed APK
                 </p>
               </div>
 
@@ -93,7 +90,7 @@ const DownloadPage = () => {
                   <Smartphone className="h-14 w-14 text-teal-100" strokeWidth={1.4} />
                 </div>
                 <p className="mt-5 text-lg font-extrabold">AnimeTeal</p>
-                <p className="mt-1 text-xs text-slate-400">Android · v2.2.0</p>
+                <p className="mt-1 text-xs text-slate-400">Latest Android build</p>
                 <span className="mt-4 rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-200">
                   Not Play Store verified
                 </span>
@@ -138,9 +135,9 @@ const DownloadPage = () => {
               </Step>
             </ol>
             <p className="mt-5 text-xs leading-5 text-slate-500">
-              The current artifact is a temporary GitHub Actions download and is scheduled
-              to expire on 6 December 2026 (UTC). If it has expired, open the build history
-              above and use the artifact from the latest successful Android build.
+              The button always requests the latest successful artifact from the Android
+              workflow. The ZIP contains app-debug.apk; extract it before installation.
+              If the latest build is temporarily unavailable, use the build history link above.
             </p>
           </section>
 
