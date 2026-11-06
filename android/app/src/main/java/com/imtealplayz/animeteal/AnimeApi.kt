@@ -167,13 +167,19 @@ class AnimeApi {
     }
 
     suspend fun search(query: String, page: Int = 1): List<AnimeItem> {
-        val gql = """
-            query (${': String!, ${': Int!) {
-              Page(page: $$page, perPage: 24) { media(search: $$search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
-                id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore
-              } }
-            }
-        """.trimIndent()
+        val gql = buildString {
+            append("query (")
+            append('$')
+            append("search: String!, ")
+            append('$')
+            append("page: Int!) { Page(page: ")
+            append('$')
+            append("page, perPage: 24) { media(search: ")
+            append('$')
+            append("search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) { ")
+            append("id title { romaji english native } coverImage { extraLarge large } format episodes description averageScore")
+            append(" } } }")
+        }
         val data = anilist(gql, JSONObject().put("search", query).put("page", page))
         return cards(data.optJSONObject("Page")?.optJSONArray("media"))
     }
