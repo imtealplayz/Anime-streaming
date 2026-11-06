@@ -100,7 +100,7 @@ const DownloadPage = () => (
               Open the downloaded AnimeTeal.apk file from your Downloads folder.
             </Step>
             <Step number="03" title="Install">
-              Follow Android's installer prompts. Android may ask which app is allowed to install APK files.
+              Follow Android&apos;s installer prompts. Android may ask which app is allowed to install APK files.
             </Step>
           </ol>
         </section>
@@ -119,7 +119,7 @@ const DownloadPage = () => (
                 AnimeTeal is distributed directly as an APK, not through the Google
                 Play Store. It has not completed Google Play certification or an
                 independent third-party security audit. Android or Play Protect may
-                therefore show an unknown-app or can't-verify warning when you install
+                therefore show an unknown-app or can&apos;t-verify warning when you install
                 it. That kind of warning is not, by itself, proof that the app contains
                 malware.
               </p>
