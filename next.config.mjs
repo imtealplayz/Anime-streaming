@@ -1,5 +1,5 @@
 import withPWA from "next-pwa";
-import defaultRuntimeCaching from "next-pwa/cache";
+import defaultRuntimeCaching from "next-pwa/cache.js";
 
 // Streaming discovery can legitimately exceed 10 seconds and must never
 // reuse a cached HTML/challenge response from an earlier API request.
