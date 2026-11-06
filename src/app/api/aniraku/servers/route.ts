@@ -23,19 +23,55 @@ export async function GET(request: NextRequest) {
     const upstream = await fetch(upstreamUrl, {
       method: "GET",
       headers: {
-        Accept: "application/json",
+        Accept: "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        Origin: "https://aniraku.tech",
         Referer: "https://aniraku.tech/",
-        "User-Agent": "AnimeTeal/1.0 (web player)",
+        // Cloudflare-protected Aniraku/provider routes reject custom non-browser UAs.
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
       },
       cache: "no-store",
       signal: AbortSignal.timeout(22000),
     });
 
     const body = await upstream.text();
+    const contentType = upstream.headers.get("content-type") || "";
+
+    if (!upstream.ok) {
+      return NextResponse.json(
+        { error: `Aniraku returned HTTP ${upstream.status}.` },
+        { status: 502, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (!contentType.toLowerCase().includes("application/json")) {
+      return NextResponse.json(
+        {
+          error: "Aniraku returned an HTML/non-JSON response instead of its server list. The upstream may be showing an anti-bot challenge.",
+          upstreamContentType: contentType || "unknown",
+        },
+        { status: 502, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    try {
+      const payload = JSON.parse(body);
+      if (!Array.isArray(payload)) {
+        throw new Error("Expected the Aniraku server list to be an array.");
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "Aniraku returned malformed server-list JSON." },
+        { status: 502, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     return new NextResponse(body, {
-      status: upstream.status,
+      status: 200,
       headers: {
-        "Content-Type": upstream.headers.get("content-type") || "application/json",
+        "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
       },
     });
