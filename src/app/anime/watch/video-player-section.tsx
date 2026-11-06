@@ -178,7 +178,7 @@ const VideoPlayerSection = () => {
   };
 
   // Cleanly extract active provider and category regardless of leading slash e.g. "watch/kiwi/178005/sub/slug"
-  const cleanParts = activeEpisodeId.replace(/^\\//, "").split("/");
+  const cleanParts = activeEpisodeId.replace(/^\//, "").split("/");
   const currentProviderName = cleanParts[1] || providerNames[0] || "kiwi";
   const activeCategory = isFallbackActive
     ? preferredCategory
@@ -256,7 +256,7 @@ const VideoPlayerSection = () => {
           const verdict = String(source?.verification || "").toLowerCase();
           return (
             typeof source?.url === "string" &&
-            /^https?:\\/\\//i.test(source.url) &&
+            /^https?:\/\//i.test(source.url) &&
             (type === "hls" || type === "m3u8") &&
             verdict !== "dead" &&
             verdict !== "embed"
@@ -283,7 +283,7 @@ const VideoPlayerSection = () => {
         )
           .filter(
             (track: any) =>
-              typeof track?.url === "string" && /^https?:\\/\\//i.test(track.url),
+              typeof track?.url === "string" && /^https?:\/\//i.test(track.url),
           )
           .map((track: any) => ({
             lang: String(track.lang || track.label || "Unknown"),
@@ -320,12 +320,13 @@ const VideoPlayerSection = () => {
           error: null as string | null,
         };
       } catch (error) {
-        if (controller.signal.aborted) throw error;
         return {
           pool: null as FallbackLanguagePool | null,
-          error: error instanceof Error
-            ? error.message
-            : `Could not discover ${lang.toUpperCase()} sources.`,
+          error: controller.signal.aborted
+            ? null
+            : error instanceof Error
+              ? error.message
+              : `Could not discover ${lang.toUpperCase()} sources.`,
         };
       }
     };
