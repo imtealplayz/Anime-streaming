@@ -197,9 +197,14 @@ fun AnimeTealApp() {
             resolving = true
             errorMessage = null
             try {
-                // One backend request invokes its built-in provider fallback chain.
-                // Avoid /servers fan-out followed by serial per-provider requests.
-                val stream = api.sourceAuto(episode.id, category)
+                // /servers fans out across providers and already returns verified,
+                // proxy-ready URLs. Play the first native source directly instead of
+                // resolving the same provider again through /stream.
+                val servers = api.servers(episode.id, category)
+                val stream = servers.asSequence()
+                    .flatMap { it.sources.asSequence() }
+                    .firstOrNull()
+                    ?: throw IllegalStateException("No playable ${category.uppercase()} stream is currently available for this episode.")
                 val savedPositionMs = history.firstOrNull {
                     it.anime.id == anime.id && it.episode.id == episode.id
                 }?.positionMs ?: 0L
