@@ -3,4 +3,5 @@ export const ROUTES = {
   ANIME_DETAILS: "/anime",
   WATCH: "/anime/watch",
   SEARCH: "/search",
+  DOWNLOAD: "/download",
 };
