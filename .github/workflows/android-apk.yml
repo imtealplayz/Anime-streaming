@@ -10,7 +10,7 @@ on:
       - ".github/workflows/android-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -69,6 +69,23 @@ jobs:
       - name: Build APK
         working-directory: android
         run: gradle --no-daemon :app:assembleDebug
+
+      - name: Publish direct APK download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: AnimeTeal Android (Latest)
+          body: |
+            Latest successful AnimeTeal Android debug build.
+
+            Download AnimeTeal.apk and install it on your Android device.
+            This is a debug-signed APK distributed outside Google Play.
+          target_commitish: main
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          overwrite_files: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
