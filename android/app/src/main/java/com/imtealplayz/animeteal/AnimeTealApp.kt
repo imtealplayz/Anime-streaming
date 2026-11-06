@@ -65,6 +65,15 @@ private data class WatchEntry(
     val positionMs: Long,
 )
 
+private data class PlaybackSession(
+    val anime: AnimeItem,
+    val episode: EpisodeItem,
+    val stream: StreamSource,
+    val alternatives: List<StreamSource>,
+    val category: String,
+    val initialPositionMs: Long,
+)
+
 private class LocalLibrary(context: Context) {
     private val prefs = context.getSharedPreferences("animeteal_native", Context.MODE_PRIVATE)
 
@@ -179,7 +188,7 @@ fun AnimeTealApp() {
 
     var tab by remember { mutableStateOf(MainTab.HOME) }
     var selectedAnime by remember { mutableStateOf<AnimeItem?>(null) }
-    var playerState by remember { mutableStateOf<Triple<AnimeItem, EpisodeItem, StreamSource>?>(null) }
+    var playerState by remember { mutableStateOf<PlaybackSession?>(null) }
     var resolving by remember { mutableStateOf(false) }
     var resolvingMessage by remember { mutableStateOf("Connecting to anime providers…") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -194,36 +203,64 @@ fun AnimeTealApp() {
         favorites.addAll(updated)
     }
 
-    fun startEpisode(anime: AnimeItem, episode: EpisodeItem, category: String = "sub") {
-        selectedAnime = null
+    fun startEpisode(
+        anime: AnimeItem,
+        episode: EpisodeItem,
+        category: String = "sub",
+        resumePositionMs: Long? = null,
+    ) {
         scope.launch {
             resolving = true
             errorMessage = null
             try {
-                // Try the backend's primary direct provider first with a hard 6s cap.
-                // Only pay for the full multi-provider fan-out when that fast path misses.
-                resolvingMessage = "Trying the primary stream…"
-                val stream = try {
-                    api.source(episode.id, "anikoto", category)
-                } catch (_: Exception) {
-                    resolvingMessage = "Checking backup providers…"
-                    val servers = api.servers(episode.id, category)
-                    servers.asSequence()
-                        .flatMap { it.sources.asSequence() }
-                        .firstOrNull()
-                        ?: throw IllegalStateException("No playable ${category.uppercase()} stream is currently available for this episode.")
+                // /servers already performs the backend's concurrent provider fan-out
+                // and returns source URLs ready for native Media3 playback. Avoid
+                // adding a 6-second single-provider timeout before that request.
+                resolvingMessage = "Finding playable ${category.uppercase()} sources…"
+                val discovered = api.servers(episode.id, category)
+                var candidates = discovered
+                    .asSequence()
+                    .flatMap { it.sources.asSequence() }
+                    .filter { source ->
+                        val type = source.type.lowercase()
+                        source.url.startsWith("https://") &&
+                            (type.contains("hls") || type.contains("mpegurl") ||
+                                type.contains("mp4") || source.url.contains(".m3u8", true) ||
+                                source.url.contains(".mp4", true))
+                    }
+                    .distinctBy { it.url }
+                    .toList()
+
+                // /stream is the last-resort backend fallback chain, used only
+                // when concurrent provider discovery finds no native source.
+                if (candidates.isEmpty()) {
+                    resolvingMessage = "Trying automatic provider fallback…"
+                    candidates = listOf(api.sourceAuto(episode.id, category))
                 }
-                resolvingMessage = "Preparing the video player…"
-                val savedPositionMs = history.firstOrNull {
+
+                val first = candidates.firstOrNull()
+                    ?: throw IllegalStateException(
+                        "No playable ${category.uppercase()} stream is currently available for this episode."
+                    )
+                resolvingMessage = "Preparing AnimeTeal Player…"
+                val savedPositionMs = (resumePositionMs ?: history.firstOrNull {
                     it.anime.id == anime.id && it.episode.id == episode.id
-                }?.positionMs ?: 0L
+                }?.positionMs ?: 0L).coerceAtLeast(0L)
+
                 library.saveProgress(anime, episode, savedPositionMs)
                 history.clear()
                 history.addAll(library.history())
-                playerState = Triple(anime, episode, stream)
+                playerState = PlaybackSession(
+                    anime = anime,
+                    episode = episode,
+                    stream = first,
+                    alternatives = candidates.drop(1),
+                    category = category,
+                    initialPositionMs = savedPositionMs,
+                )
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Unable to resolve this episode."
-                tab = MainTab.HOME
+                if (playerState == null) tab = MainTab.HOME
             } finally {
                 resolving = false
             }
@@ -254,16 +291,36 @@ fun AnimeTealApp() {
                 playerState != null -> {
                     val state = playerState!!
                     NativePlayerScreen(
-                        anime = state.first,
-                        episode = state.second,
-                        stream = state.third,
-                        initialPositionMs = history.firstOrNull { it.anime.id == state.first.id }?.positionMs ?: 0L,
+                        anime = state.anime,
+                        episode = state.episode,
+                        stream = state.stream,
+                        category = state.category,
+                        initialPositionMs = state.initialPositionMs,
+                        hasAlternateSource = state.alternatives.isNotEmpty(),
+                        isResolvingLanguage = resolving,
                         onBack = { playerState = null },
                         onProgress = { position ->
-                            library.saveProgress(state.first, state.second, position)
+                            library.saveProgress(state.anime, state.episode, position)
                             history.clear()
                             history.addAll(library.history())
-                        }
+                        },
+                        onTryNextSource = {
+                            val next = state.alternatives.firstOrNull()
+                            if (next != null) {
+                                playerState = state.copy(
+                                    stream = next,
+                                    alternatives = state.alternatives.drop(1),
+                                )
+                            }
+                        },
+                        onChangeLanguage = { nextCategory, position ->
+                            if (nextCategory != state.category) {
+                                startEpisode(state.anime, state.episode, nextCategory, position)
+                            }
+                        },
+                        onRetry = { position ->
+                            startEpisode(state.anime, state.episode, state.category, position)
+                        },
                     )
                 }
                 selectedAnime != null -> {
