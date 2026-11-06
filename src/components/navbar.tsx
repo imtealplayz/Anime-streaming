@@ -12,14 +12,25 @@ import { ROUTES } from "@/constants/routes";
 import React, { ReactNode, useEffect, useState } from "react";
 
 import SearchBar from "./search-bar";
-import { MenuIcon, X, Compass, Home } from "lucide-react";
+import { MenuIcon, X, Compass, Home, Download } from "lucide-react";
 import useScrollPosition from "@/hooks/use-scroll-position";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "./ui/sheet";
 import { pb } from "@/lib/pocketbase";
 
-const menuItems: Array<{ title: string; href: string; icon: React.ReactNode }> = [
+const menuItems: Array<{
+  title: string;
+  href: string;
+  icon: React.ReactNode;
+  featured?: boolean;
+}> = [
   { title: "Home", href: ROUTES.HOME, icon: <Home className="h-4 w-4" /> },
   { title: "Explore anime", href: ROUTES.SEARCH, icon: <Compass className="h-4 w-4" /> },
+  {
+    title: "Download app",
+    href: ROUTES.DOWNLOAD,
+    icon: <Download className="h-4 w-4" />,
+    featured: true,
+  },
 ];
 
 const NavBar = () => {
@@ -67,13 +78,18 @@ const NavBar = () => {
           </h1>
         </Link>
 
-        <nav aria-label="Main navigation" className="hidden items-center gap-7 lg:flex">
+        <nav aria-label="Main navigation" className="hidden items-center gap-5 xl:gap-7 lg:flex">
           {menuItems.map((menu) => (
             <Link
               href={menu.href}
               key={menu.href}
-              className="text-sm font-semibold text-slate-300 transition hover:text-teal-200"
+              className={
+                menu.featured
+                  ? "inline-flex items-center gap-2 rounded-xl border border-teal-300/25 bg-teal-300/10 px-3 py-2 text-sm font-bold text-teal-100 transition hover:border-teal-200/50 hover:bg-teal-300/15"
+                  : "text-sm font-semibold text-slate-300 transition hover:text-teal-200"
+              }
             >
+              {menu.featured && <Download className="h-4 w-4" />}
               {menu.title}
             </Link>
           ))}
@@ -136,7 +152,11 @@ const MobileMenuSheet = ({ trigger }: { trigger: ReactNode }) => {
                 href={menu.href}
                 key={menu.href}
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-teal-300/30 hover:bg-teal-300/10"
+                className={
+                  menu.featured
+                    ? "flex items-center gap-3 rounded-xl border border-teal-300/25 bg-teal-300/10 px-4 py-3 text-sm font-bold text-teal-100 transition hover:border-teal-200/40 hover:bg-teal-300/15"
+                    : "flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-teal-300/30 hover:bg-teal-300/10"
+                }
               >
                 {menu.icon}
                 {menu.title}
