@@ -298,18 +298,21 @@ fun AnimeTealApp() {
                         initialPositionMs = state.initialPositionMs,
                         hasAlternateSource = state.alternatives.isNotEmpty(),
                         isResolvingLanguage = resolving,
+                        resolveError = errorMessage,
+                        onDismissResolveError = { errorMessage = null },
                         onBack = { playerState = null },
                         onProgress = { position ->
                             library.saveProgress(state.anime, state.episode, position)
                             history.clear()
                             history.addAll(library.history())
                         },
-                        onTryNextSource = {
+                        onTryNextSource = { position ->
                             val next = state.alternatives.firstOrNull()
                             if (next != null) {
                                 playerState = state.copy(
                                     stream = next,
                                     alternatives = state.alternatives.drop(1),
+                                    initialPositionMs = position.coerceAtLeast(0L),
                                 )
                             }
                         },

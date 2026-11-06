@@ -160,9 +160,11 @@ fun NativePlayerScreen(
     initialPositionMs: Long,
     hasAlternateSource: Boolean,
     isResolvingLanguage: Boolean,
+    resolveError: String?,
+    onDismissResolveError: () -> Unit,
     onBack: () -> Unit,
     onProgress: (Long) -> Unit,
-    onTryNextSource: () -> Unit,
+    onTryNextSource: (Long) -> Unit,
     onChangeLanguage: (String, Long) -> Unit,
     onRetry: (Long) -> Unit,
 ) {
@@ -307,7 +309,7 @@ fun NativePlayerScreen(
                 if (!errorHandled.value && latestHasAlternative) {
                     errorHandled.value = true
                     playerError = "This provider failed. Trying the next available source…"
-                    latestTryNext()
+                    latestTryNext(player.currentPosition.coerceAtLeast(0L))
                 } else {
                     playerError = error.message ?: "The video stream could not be played."
                     isBuffering = false
@@ -336,8 +338,12 @@ fun NativePlayerScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, isPlaying, interactionTick, controlsLocked) {
-        if (controlsVisible && isPlaying && !controlsLocked) {
+    LaunchedEffect(resolveError) {
+        if (resolveError != null) controlsVisible = true
+    }
+
+    LaunchedEffect(controlsVisible, isPlaying, interactionTick, controlsLocked, resolveError) {
+        if (controlsVisible && isPlaying && !controlsLocked && resolveError == null) {
             delay(4_000)
             controlsVisible = false
         }
@@ -613,6 +619,30 @@ fun NativePlayerScreen(
                                     )
                                     TextButton(onClick = { latestOnRetry(player.currentPosition) }) {
                                         Text("Retry", color = NativePlayerTeal)
+                                    }
+                                }
+                            }
+                        }
+                        if (resolveError != null) {
+                            Surface(
+                                color = Color(0xE62B1B16),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        resolveError,
+                                        Modifier.weight(1f),
+                                        color = Color(0xFFFFD4BA),
+                                        fontSize = 11.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    TextButton(onClick = onDismissResolveError) {
+                                        Text("Dismiss", color = NativePlayerTeal)
                                     }
                                 }
                             }
