@@ -27,17 +27,12 @@ jobs:
       - name: Reassemble companion source archive
         shell: pwsh
         run: |
-          $parts = @(
-            "tools/discord-rpc/source-package.b64.1",
-            "tools/discord-rpc/source-package.b64.2",
-            "tools/discord-rpc/source-package.b64.3",
-            "tools/discord-rpc/source-package.b64.4",
-            "tools/discord-rpc/source-package.b64.5",
-            "tools/discord-rpc/source-package.b64.6",
-            "tools/discord-rpc/source-package.b64.7",
-            "tools/discord-rpc/source-package.b64.8"
-          )
-          $encoded = ($parts | ForEach-Object { Get-Content -Raw $_ }) -join ""
+          $parts = Get-ChildItem "tools/discord-rpc" -Filter "source-package.b64.*" |
+            Sort-Object { [int]($_.Name.Substring($_.Name.LastIndexOf('.') + 1)) }
+          if (-not $parts -or $parts.Count -lt 1) {
+            throw "No companion source archive segments were found."
+          }
+          $encoded = ($parts | ForEach-Object { (Get-Content -Raw $_.FullName).Trim() }) -join ""
           $archive = [Convert]::FromBase64String($encoded)
           [System.IO.File]::WriteAllBytes("tools/discord-rpc/source-package.tar.gz", $archive)
 
