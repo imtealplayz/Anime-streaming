@@ -45,7 +45,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "tools/discord-rpc/source" | Out-Null
-          tar -xzf "tools/discord-rpc/source-package.tar.gz" -C "tools/discord-rpc/source"
+          tar -xzf "tools/discord-rpc/source-package.tar.gz" --strip-components=1 -C "tools/discord-rpc/source"
 
       - name: Publish self-contained Windows helper
         shell: pwsh
