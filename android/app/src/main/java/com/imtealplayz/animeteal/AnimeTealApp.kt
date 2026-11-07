@@ -1,6 +1,7 @@
 package com.imtealplayz.animeteal
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -192,10 +193,15 @@ fun AnimeTealApp() {
     var resolving by remember { mutableStateOf(false) }
     var resolvingMessage by remember { mutableStateOf("Connecting to anime providers…") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
 
     val favorites = remember { mutableStateListOf<AnimeItem>().apply { addAll(library.favorites()) } }
     val history = remember { mutableStateListOf<WatchEntry>().apply { addAll(library.history()) } }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        updateInfo = AppUpdateChecker.check(context)
+    }
 
     fun toggleFavorite(item: AnimeItem) {
         val updated = library.toggleFavorite(item)
@@ -391,6 +397,63 @@ fun AnimeTealApp() {
                     }
                 }
             }
+        }
+
+        val availableUpdate = updateInfo
+        if (availableUpdate != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!availableUpdate.isRequired) updateInfo = null
+                },
+                title = {
+                    Text(if (availableUpdate.isRequired) "Update required" else "AnimeTeal update available")
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("Version ${availableUpdate.versionName} is ready to download.")
+                        if (availableUpdate.releaseNotes.isNotBlank()) {
+                            Text(
+                                availableUpdate.releaseNotes,
+                                color = Muted,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                            )
+                        }
+                        Text(
+                            "The APK will download from AnimeTeal's official GitHub release. Android will ask you to confirm installation.",
+                            color = Muted,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            try {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(availableUpdate.downloadUrl))
+                                )
+                            } catch (_: Exception) {
+                                // Keep the app usable if no browser can handle the link.
+                            }
+                            if (!availableUpdate.isRequired) updateInfo = null
+                        }
+                    ) {
+                        Text("Download update", color = Teal)
+                    }
+                },
+                dismissButton = {
+                    if (!availableUpdate.isRequired) {
+                        TextButton(onClick = { updateInfo = null }) {
+                            Text("Later", color = Muted)
+                        }
+                    }
+                },
+                containerColor = Panel2,
+                titleContentColor = Color.White,
+                textContentColor = Color.White,
+            )
         }
     }
 }
