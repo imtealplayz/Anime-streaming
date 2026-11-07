@@ -1,0 +1,78 @@
+name: Export AnimeTeal signing key securely
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/export-signing-key.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  export-signing-key:
+    name: Protect and export existing signing key
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore existing AnimeTeal signing key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: animeteal-debug-keystore-v2
+
+      - name: Protect the existing key with the stored password
+        shell: bash
+        env:
+          ANIMETEAL_KEYSTORE_PASSWORD: ${{ secrets.ANIMETEAL_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYSTORE="$HOME/.android/debug.keystore"
+          test -s "$KEYSTORE"
+          test -n "$ANIMETEAL_KEYSTORE_PASSWORD"
+
+          mkdir -p "$RUNNER_TEMP/animeteal-key-export"
+          cp "$KEYSTORE" "$RUNNER_TEMP/animeteal-key-export/animeteal-release.jks"
+          EXPORT_KEY="$RUNNER_TEMP/animeteal-key-export/animeteal-release.jks"
+
+          keytool -storepasswd \
+            -keystore "$EXPORT_KEY" \
+            -storepass android \
+            -new "$ANIMETEAL_KEYSTORE_PASSWORD"
+
+          keytool -keypasswd \
+            -keystore "$EXPORT_KEY" \
+            -storepass "$ANIMETEAL_KEYSTORE_PASSWORD" \
+            -alias androiddebugkey \
+            -keypass android \
+            -new "$ANIMETEAL_KEYSTORE_PASSWORD"
+
+          keytool -list -v \
+            -keystore "$EXPORT_KEY" \
+            -storepass "$ANIMETEAL_KEYSTORE_PASSWORD" \
+            -alias androiddebugkey > "$RUNNER_TEMP/animeteal-cert.txt"
+
+          grep -Fq "4D:A1:1D:29:EE:83:0E:B9:D4:BE:77:CD:06:2C:07:F5:16:56:9F:96:A7:ED:74:B3:5B:AE:72:D8:5C:95:52:2E" "$RUNNER_TEMP/animeteal-cert.txt"
+
+          echo "Existing registered certificate verified."
+          sha256sum "$EXPORT_KEY" > "$RUNNER_TEMP/animeteal-key-export/animeteal-release.jks.sha256"
+
+      - name: Upload encrypted keystore for owner transfer
+        uses: actions/upload-artifact@v4
+        with:
+          name: animeteal-signing-key-encrypted
+          path: |
+            [object Object]{{ runner.temp }}/animeteal-key-export/animeteal-release.jks
+            [object Object]{{ runner.temp }}/animeteal-key-export/animeteal-release.jks.sha256
+          if-no-files-found: error
+          retention-days: 1
