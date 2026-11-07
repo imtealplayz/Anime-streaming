@@ -81,6 +81,7 @@ function AnimeTealPlayer({
   const hasMetMinWatchTimeRef = useRef<boolean>(false); // Track if min time met for this episode
   const initialSeekTimeRef = useRef<number | null>(null);
   const lastLocalWatchWriteRef = useRef<number>(0);
+  const lastMediaSessionPositionUpdateRef = useRef<number>(0);
 
   const { auth } = useAuthStore();
   const { createOrUpdateBookMark, syncWatchProgress } = useBookMarks({
@@ -543,6 +544,101 @@ function AnimeTealPlayer({
     // --- Initialize ArtPlayer ---
     const art = new Artplayer(finalOptions);
     artInstanceRef.current = art;
+    // Publish the current episode to the browser Media Session API.
+    // Android Chrome can surface this as lock-screen / notification media controls.
+    const mediaSession =
+      typeof navigator !== "undefined" ? navigator.mediaSession : undefined;
+    const video = art.video;
+
+    const setMediaSessionPosition = (force = false) => {
+      if (!mediaSession) return;
+      const duration = art.duration;
+      const now = Date.now();
+      if (!force && now - lastMediaSessionPositionUpdateRef.current < 1000) return;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+
+      try {
+        mediaSession.setPositionState({
+          duration,
+          playbackRate: video.playbackRate || 1,
+          position: Math.max(0, Math.min(art.currentTime, duration)),
+        });
+        lastMediaSessionPositionUpdateRef.current = now;
+      } catch {
+        // Some browsers reject position updates until media metadata is ready.
+      }
+    };
+
+    const updateMediaPlaybackState = () => {
+      if (!mediaSession) return;
+      mediaSession.playbackState = video.ended
+        ? "none"
+        : video.paused
+          ? "paused"
+          : "playing";
+      setMediaSessionPosition(true);
+    };
+
+    if (mediaSession) {
+      if (typeof MediaMetadata !== "undefined") {
+        mediaSession.metadata = new MediaMetadata({
+          title: animeInfo.title + " · Episode " + serversData.episodeNo,
+          artist: "AnimeTeal",
+          album: animeInfo.title,
+          artwork: [
+            {
+              src: animeInfo.image || "/icon-192x192.png",
+              sizes: "512x512",
+            },
+          ],
+        });
+      }
+      mediaSession.playbackState = "paused";
+
+      try {
+        mediaSession.setActionHandler("play", () => { void art.play(); });
+        mediaSession.setActionHandler("pause", () => art.pause());
+        mediaSession.setActionHandler("stop", () => {
+          art.pause();
+          art.seek = 0;
+          if (mediaSession) mediaSession.playbackState = "none";
+        });
+        mediaSession.setActionHandler("seekbackward", (details) => {
+          const offset = details.seekOffset ?? 10;
+          art.seek = Math.max(0, art.currentTime - offset);
+          setMediaSessionPosition(true);
+        });
+        mediaSession.setActionHandler("seekforward", (details) => {
+          const offset = details.seekOffset ?? 10;
+          art.seek = Math.min(art.duration || art.currentTime + offset, art.currentTime + offset);
+          setMediaSessionPosition(true);
+        });
+        mediaSession.setActionHandler("seekto", (details) => {
+          if (typeof details.seekTime === "number" && Number.isFinite(details.seekTime)) {
+            art.seek = Math.max(0, Math.min(details.seekTime, art.duration || details.seekTime));
+            setMediaSessionPosition(true);
+          }
+        });
+      } catch {
+        // A browser may not support every optional media action.
+      }
+    }
+
+    const handleMediaSessionPlay = () => updateMediaPlaybackState();
+    const handleMediaSessionPause = () => updateMediaPlaybackState();
+    const handleMediaSessionTimeUpdate = () => setMediaSessionPosition();
+    const handleMediaSessionSeeked = () => setMediaSessionPosition(true);
+    const handleMediaSessionEnded = () => {
+      if (mediaSession) mediaSession.playbackState = "none";
+    };
+
+    video.addEventListener("play", handleMediaSessionPlay);
+    video.addEventListener("pause", handleMediaSessionPause);
+    video.addEventListener("timeupdate", handleMediaSessionTimeUpdate);
+    video.addEventListener("seeked", handleMediaSessionSeeked);
+    video.addEventListener("loadedmetadata", handleMediaSessionSeeked);
+    video.addEventListener("ratechange", handleMediaSessionSeeked);
+    video.addEventListener("ended", handleMediaSessionEnded);
 
     const saveLocalWatchProgress = (currentTime: number) => {
       if (typeof window === "undefined" || currentTime < WATCH_PROGRESS_MIN_WATCH_TIME) return;
@@ -834,6 +930,27 @@ function AnimeTealPlayer({
         art.off("video:seeked", handleInteractionUpdate);
         art.off("video:timeupdate", handleTimeUpdate);
 
+        video.removeEventListener("play", handleMediaSessionPlay);
+        video.removeEventListener("pause", handleMediaSessionPause);
+        video.removeEventListener("timeupdate", handleMediaSessionTimeUpdate);
+        video.removeEventListener("seeked", handleMediaSessionSeeked);
+        video.removeEventListener("loadedmetadata", handleMediaSessionSeeked);
+        video.removeEventListener("ratechange", handleMediaSessionSeeked);
+        video.removeEventListener("ended", handleMediaSessionEnded);
+        if (mediaSession) {
+          mediaSession.playbackState = "none";
+          mediaSession.metadata = null;
+          try {
+            mediaSession.setActionHandler("play", null);
+            mediaSession.setActionHandler("pause", null);
+            mediaSession.setActionHandler("stop", null);
+            mediaSession.setActionHandler("seekbackward", null);
+            mediaSession.setActionHandler("seekforward", null);
+            mediaSession.setActionHandler("seekto", null);
+          } catch {
+            // Ignore unsupported media action cleanup.
+          }
+        }
         console.log("Cleanup: Pausing player");
         art.pause(); // Explicitly pause
 
