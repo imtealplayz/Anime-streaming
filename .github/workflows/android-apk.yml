@@ -2,6 +2,12 @@ name: Build and publish AnimeTeal Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish this signed APK to the public download link after you have tested it"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -86,6 +92,7 @@ jobs:
           retention-days: 30
 
       - name: Publish direct APK download
+        if: ${{ inputs.publish }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest
