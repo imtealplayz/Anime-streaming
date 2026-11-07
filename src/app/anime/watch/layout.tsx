@@ -16,6 +16,7 @@ import AnimeCarousel from "@/components/anime-carousel";
 import { IAnime } from "@/types/anime";
 import { useGetAllEpisodes } from "@/query/get-all-episodes";
 import CommentsSection from "@/components/comments/comments-section";
+import DiscordRpcPresence from "@/components/discord-rpc-presence";
 
 type Props = {
   children: ReactNode;
@@ -87,6 +88,11 @@ const Layout = (props: Props) => {
   return (
     anime?.anime.info && (
       <Container className="mt-[6.5rem] space-y-10 pb-20">
+        <DiscordRpcPresence
+          animeId={anime?.anime.info.id || animeId || ""}
+          animeTitle={anime?.anime.info.name || "Anime"}
+          episodeNumber={Number.isFinite(currentEpNum) && currentEpNum > 0 ? currentEpNum : 1}
+        />
         <div className="grid lg:grid-cols-4 grid-cols-1 gap-y-5 gap-x-10 h-auto w-full">
           <div className="lg:col-span-3 col-span-1 lg:mb-0">
             {props.children}
