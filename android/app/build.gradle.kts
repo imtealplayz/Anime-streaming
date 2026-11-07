@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val animetealKeystorePath = System.getenv("ANIMETEAL_KEYSTORE_FILE")
+val animetealKeystorePassword = System.getenv("ANIMETEAL_KEYSTORE_PASSWORD")
+
 android {
     namespace = "com.imtealplayz.animeteal"
     compileSdk = 35
@@ -14,6 +17,16 @@ android {
         targetSdk = 35
         versionCode = 4
         versionName = "2.2.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(animetealKeystorePath ?: "missing-animeteal-release.p12")
+            storeType = "PKCS12"
+            storePassword = animetealKeystorePassword
+            keyAlias = "animeteal"
+            keyPassword = animetealKeystorePassword
+        }
     }
 
     buildFeatures {
@@ -29,7 +42,10 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+        }
     }
 }
 
