@@ -60,7 +60,7 @@ const DownloadPage = () => (
                   Download AnimeTeal (.apk)
                 </a>
                 <p className="mt-3 text-xs leading-5 text-slate-400">
-                  Android APK · Debug-signed · Direct download
+                  Android APK · Release-signed · Direct download
                 </p>
               </div>
             </div>
@@ -132,8 +132,9 @@ const DownloadPage = () => (
               <div className="mt-5 flex items-start gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-200" />
                 <p className="text-xs leading-5 text-slate-300">
-                  This is a debug-signed testing build distributed outside Google Play.
-                  It has not been independently security-audited.
+                  This is a release-signed APK distributed directly by AnimeTeal outside Google Play.
+                  It has not been independently security-audited. APK signing helps verify
+                  that updates come from the same publisher key; it is not a malware scan.
                 </p>
               </div>
             </div>
