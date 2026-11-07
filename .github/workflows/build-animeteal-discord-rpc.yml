@@ -1,0 +1,80 @@
+name: Build AnimeTeal Discord RPC Companion
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "tools/discord-rpc/**"
+      - "src/app/api/discord/rpc/token/route.ts"
+      - ".github/workflows/build-animeteal-discord-rpc.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-package:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Reassemble companion source archive
+        shell: pwsh
+        run: |
+          $parts = @(
+            "tools/discord-rpc/source-package.b64.1",
+            "tools/discord-rpc/source-package.b64.2",
+            "tools/discord-rpc/source-package.b64.3",
+            "tools/discord-rpc/source-package.b64.4",
+            "tools/discord-rpc/source-package.b64.5",
+            "tools/discord-rpc/source-package.b64.6",
+            "tools/discord-rpc/source-package.b64.7",
+            "tools/discord-rpc/source-package.b64.8"
+          )
+          $encoded = ($parts | ForEach-Object { Get-Content -Raw $_ }) -join ""
+          $archive = [Convert]::FromBase64String($encoded)
+          [System.IO.File]::WriteAllBytes("tools/discord-rpc/source-package.tar.gz", $archive)
+
+      - name: Extract companion source package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "tools/discord-rpc/source" | Out-Null
+          tar -xzf "tools/discord-rpc/source-package.tar.gz" -C "tools/discord-rpc/source"
+
+      - name: Publish self-contained Windows helper
+        shell: pwsh
+        run: |
+          dotnet publish tools/discord-rpc/source/windows/AnimeTealRpcHost/AnimeTealRpcHost.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            --output tools/discord-rpc/dist/AnimeTeal-Discord-RPC/windows
+
+      - name: Assemble install package
+        shell: pwsh
+        run: |
+          $dist = "tools/discord-rpc/dist/AnimeTeal-Discord-RPC"
+          New-Item -ItemType Directory -Force -Path "$dist/extension" | Out-Null
+          Copy-Item "tools/discord-rpc/source/extension/*" "$dist/extension/" -Recurse -Force
+          Copy-Item "tools/discord-rpc/source/windows/Install-Helper.bat" "$dist/windows/" -Force
+          Copy-Item "tools/discord-rpc/source/windows/Uninstall-Helper.bat" "$dist/windows/" -Force
+          Copy-Item "tools/discord-rpc/source/windows/Install-Helper.ps1" "$dist/windows/" -Force
+          Copy-Item "tools/discord-rpc/source/windows/Uninstall-Helper.ps1" "$dist/windows/" -Force
+          Copy-Item "tools/discord-rpc/source/README.txt" "$dist/README.txt" -Force
+          Compress-Archive -Path "$dist/*" -DestinationPath "tools/discord-rpc/dist/AnimeTeal-Discord-RPC-Windows.zip" -Force
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnimeTeal-Discord-RPC-Windows
+          path: tools/discord-rpc/dist/AnimeTeal-Discord-RPC-Windows.zip
+          if-no-files-found: error
+          retention-days: 30
