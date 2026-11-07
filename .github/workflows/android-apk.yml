@@ -1,14 +1,14 @@
-name: Build AnimeTeal Android APK
+name: Build and publish AnimeTeal Android APK
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
-    name: Build signed release candidate
+    name: Build and publish signed APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -64,18 +64,41 @@ jobs:
           ANIMETEAL_KEYSTORE_PASSWORD: ${{ secrets.ANIMETEAL_KEYSTORE_PASSWORD }}
         run: gradle --no-daemon :app:assembleRelease
 
-      - name: Verify APK signature
+      - name: Verify APK signature and certificate
+        shell: bash
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs \
-            android/app/build/outputs/apk/release/app-release.apk
+          set -euo pipefail
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
 
-      - name: Prepare release candidate
-        run: cp android/app/build/outputs/apk/release/app-release.apk AnimeTeal-release-candidate.apk
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apk-signature.txt"
+          grep -Fq "Signer #1 certificate SHA-256 digest: 7f541a95597069081e3899da4068d19631cd4de17292e324a5fb145266f538be" "$RUNNER_TEMP/apk-signature.txt"
 
-      - name: Upload signed APK candidate
+      - name: Prepare public APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk AnimeTeal.apk
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: animeteal-signed-release-candidate
-          path: AnimeTeal-release-candidate.apk
+          name: animeteal-android-release-apk
+          path: AnimeTeal.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish direct APK download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: AnimeTeal Android (Latest)
+          body: |
+            Latest signed AnimeTeal Android release.
+
+            Download AnimeTeal.apk and install it on your Android device.
+            This release uses AnimeTeal's permanent Android signing key.
+            Users upgrading from the previous signing certificate must uninstall the previous app once before installing this release.
+          target_commitish: main
+          files: AnimeTeal.apk
+          overwrite_files: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
