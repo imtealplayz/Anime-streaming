@@ -306,7 +306,7 @@ export default function DiscordRpcPresence({
         setStatus("connected");
         setMessage("Your anime is being shared with Discord.");
       }
-    } catch (error) {
+    } catch {
       socket?.close();
       tokenRef.current = null;
       sessionStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -415,9 +415,11 @@ export default function DiscordRpcPresence({
       mountedRef.current = false;
       const socket = socketRef.current;
       if (socket && socket.readyState === WebSocket.OPEN && connectedRef.current) {
-        void rpcRequest(socket, "SET_ACTIVITY", { pid: 0, activity: null }, 1500).finally(() => {
-          socket.close();
-        });
+        void rpcRequest(socket, "SET_ACTIVITY", { pid: 0, activity: null }, 1500)
+          .catch(() => undefined)
+          .finally(() => {
+            socket.close();
+          });
       } else {
         socket?.close();
       }
