@@ -334,7 +334,7 @@ export default function DiscordRpcPresence({
         "AUTHORIZE",
         {
           client_id: DISCORD_APPLICATION_ID,
-          scopes: ["rpc"],
+          scopes: ["rpc", "identify"],
         },
         45000,
       );
