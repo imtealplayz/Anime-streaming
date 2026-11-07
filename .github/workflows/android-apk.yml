@@ -2,19 +2,13 @@ name: Build AnimeTeal Android APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "android/**"
-      - ".github/workflows/android-apk.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-apk:
-    name: Build installable debug APK
+    name: Build signed release candidate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -41,59 +35,47 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      # Keep the debug certificate stable across CI runs so future APKs can
-      # update the installed app without losing local favorites/watch history.
-      - name: Restore stable debug signing key
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: animeteal-debug-keystore-v2
-
-      - name: Create debug signing key when missing
+      - name: Restore private release keystore
         shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANIMETEAL_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANIMETEAL_KEYSTORE_PASSWORD }}
         run: |
-          if [[ ! -f "$HOME/.android/debug.keystore" ]]; then
-            mkdir -p "$HOME/.android"
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storetype JKS \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
+          set -euo pipefail
+          if [[ -z "${KEYSTORE_BASE64}" || -z "${KEYSTORE_PASSWORD}" ]]; then
+            echo "::error::Missing ANIMETEAL_KEYSTORE_BASE64 or ANIMETEAL_KEYSTORE_PASSWORD repository secret."
+            exit 1
           fi
 
-      - name: Build APK
+          mkdir -p "$RUNNER_TEMP/animeteal-signing"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/animeteal-signing/animeteal-release.p12"
+          chmod 600 "$RUNNER_TEMP/animeteal-signing/animeteal-release.p12"
+
+          keytool -list \
+            -keystore "$RUNNER_TEMP/animeteal-signing/animeteal-release.p12" \
+            -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias animeteal >/dev/null
+
+      - name: Build signed release APK
         working-directory: android
-        run: gradle --no-daemon :app:assembleDebug
-
-      - name: Name installable APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk AnimeTeal.apk
-
-      - name: Publish direct APK download
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: android-latest
-          name: AnimeTeal Android (Latest)
-          body: |
-            Latest successful AnimeTeal Android debug build.
-
-            Download AnimeTeal.apk and install it on your Android device.
-            This is a debug-signed APK distributed outside Google Play.
-          target_commitish: main
-          files: AnimeTeal.apk
-          overwrite_files: true
-          make_latest: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANIMETEAL_KEYSTORE_FILE: ${{ runner.temp }}/animeteal-signing/animeteal-release.p12
+          ANIMETEAL_KEYSTORE_PASSWORD: ${{ secrets.ANIMETEAL_KEYSTORE_PASSWORD }}
+        run: gradle --no-daemon :app:assembleRelease
 
-      - name: Upload APK artifact
+      - name: Verify APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs \
+            android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Prepare release candidate
+        run: cp android/app/build/outputs/apk/release/app-release.apk AnimeTeal-release-candidate.apk
+
+      - name: Upload signed APK candidate
         uses: actions/upload-artifact@v4
         with:
-          name: animeteal-android-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: animeteal-signed-release-candidate
+          path: AnimeTeal-release-candidate.apk
           if-no-files-found: error
           retention-days: 30
