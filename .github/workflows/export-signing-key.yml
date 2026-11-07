@@ -1,4 +1,4 @@
-name: Export AnimeTeal signing key securely
+name: Diagnose AnimeTeal APK signing identity
 
 on:
   push:
@@ -8,12 +8,11 @@ on:
       - ".github/workflows/export-signing-key.yml"
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
-  export-signing-key:
-    name: Protect and export existing signing key
+  diagnose-signing:
+    name: Locate the actual Android debug signing key
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -25,64 +24,46 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Restore existing AnimeTeal signing key
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Restore the cached keystore
         uses: actions/cache/restore@v4
         with:
           path: ~/.android/debug.keystore
           key: animeteal-debug-keystore-v2
 
-      - name: Protect and verify the existing key
+      - name: Print Android signing paths and available keystores
         shell: bash
-        env:
-          ANIMETEAL_KEYSTORE_PASSWORD: ${{ secrets.ANIMETEAL_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
-          KEYSTORE="$HOME/.android/debug.keystore"
-          test -s "$KEYSTORE"
-          test -n "$ANIMETEAL_KEYSTORE_PASSWORD"
+          echo "HOME=$HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_USER_HOME=${dollar}{ANDROID_USER_HOME:-<unset>}"
+          echo "ANDROID_SDK_HOME=${dollar}{ANDROID_SDK_HOME:-<unset>}"
+          echo "Java user.home:"
+          jshell <<'EOF'
+          System.out.println(System.getProperty("user.home"));
+          /exit
+          EOF
+          echo "Keystore files:"
+          find "$HOME" "$ANDROID_HOME" "$GITHUB_WORKSPACE/android" -type f \\
+            \\( -iname "*.keystore" -o -iname "*.jks" \\) -print 2>/dev/null || true
+          echo "Cached keystore fingerprint:"
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:|Owner:|Issuer:"
 
-          OUT_DIR="$GITHUB_WORKSPACE/animeteal-key-export"
-          mkdir -p "$OUT_DIR"
-          cp "$KEYSTORE" "$OUT_DIR/animeteal-release.jks"
-          EXPORT_KEY="$OUT_DIR/animeteal-release.jks"
-
-          # Re-protect the exact existing keypair; do not generate a new key.
-          keytool -storepasswd \
-            -keystore "$EXPORT_KEY" \
-            -storepass android \
-            -new "$ANIMETEAL_KEYSTORE_PASSWORD"
-
-          keytool -keypasswd \
-            -keystore "$EXPORT_KEY" \
-            -storepass "$ANIMETEAL_KEYSTORE_PASSWORD" \
-            -alias androiddebugkey \
-            -keypass android \
-            -new "$ANIMETEAL_KEYSTORE_PASSWORD"
-
-          keytool -list -v \
-            -keystore "$EXPORT_KEY" \
-            -storepass "$ANIMETEAL_KEYSTORE_PASSWORD" \
-            -alias androiddebugkey > "$RUNNER_TEMP/animeteal-cert.txt"
-
-          FINGERPRINT="$(sed -n 's/^[[:space:]]*SHA256: //p' "$RUNNER_TEMP/animeteal-cert.txt" | head -n 1)"
-          echo "Signing certificate SHA-256: $FINGERPRINT"
-          echo "$FINGERPRINT" > "$OUT_DIR/signing-certificate-sha256.txt"
-
-          if [[ "$FINGERPRINT" != "4D:A1:1D:29:EE:83:0E:B9:D4:BE:77:CD:06:2C:07:F5:16:56:9F:96:A7:ED:74:B3:5B:AE:72:D8:5C:95:52:2E" ]]; then
-            echo "::error::The key's certificate does not match the fingerprint entered in Google Console. Do not use this key for releases until reconciled."
-            exit 1
-          fi
-
-          echo "Existing registered certificate verified."
-          sha256sum "$EXPORT_KEY" > "$OUT_DIR/animeteal-release.jks.sha256"
-
-      - name: Upload encrypted keystore for owner transfer
-        uses: actions/upload-artifact@v4
-        with:
-          name: animeteal-signing-key-encrypted
-          path: |
-            animeteal-key-export/animeteal-release.jks
-            animeteal-key-export/animeteal-release.jks.sha256
-            animeteal-key-export/signing-certificate-sha256.txt
-          if-no-files-found: error
-          retention-days: 1
+      - name: Ask Gradle for its actual variant signing configuration
+        working-directory: android
+        run: gradle --no-daemon :app:signingReport
