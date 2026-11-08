@@ -1,0 +1,112 @@
+import "./globals.css";
+import type { Metadata, Viewport } from "next";
+import localFont from "next/font/local";
+
+import NavBar from "@/components/navbar";
+import Footer from "@/components/footer";
+import Script from "next/script";
+import QueryProvider from "@/providers/query-provider";
+import { PublicEnvScript } from "next-runtime-env";
+
+import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
+import { Analytics } from "@vercel/analytics/next";
+
+const geistSans = localFont({
+  src: "./fonts/GeistVF.woff",
+  variable: "--font-geist-sans",
+  weight: "100 900",
+});
+
+const APP_NAME = "AnimeTeal";
+const APP_DEFAULT_TITLE = "AnimeTeal - Anime Streaming";
+const APP_DESCRIPTION =
+  "Discover anime, explore episodes, and continue watching with AnimeTeal.";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#07090e",
+};
+
+export const metadata: Metadata = {
+  applicationName: APP_NAME,
+  title: {
+    default: APP_DEFAULT_TITLE,
+    template: "%s | AnimeTeal",
+  },
+  description: APP_DESCRIPTION,
+  icons: {
+    icon: "/animeteal-logo.svg",
+    apple: "/icon-192x192.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: APP_DEFAULT_TITLE,
+  },
+  manifest: "/manifest.json",
+  formatDetection: {
+    telephone: false,
+  },
+  openGraph: {
+    type: "website",
+    siteName: APP_NAME,
+    title: APP_DEFAULT_TITLE,
+    description: APP_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: APP_DEFAULT_TITLE,
+    description: APP_DESCRIPTION,
+  },
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  const gaId = process.env.NEXT_PUBLIC_GA_ID;
+
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {gaId && (
+          <>
+            <Script
+              src={"https://www.googletagmanager.com/gtag/js?id=" + gaId}
+              strategy="afterInteractive"
+            />
+            <Script id="google-analytics" strategy="afterInteractive">
+              {`
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', '${gaId}');`}
+            </Script>
+          </>
+        )}
+        <PublicEnvScript />
+      </head>
+      <body
+        className={geistSans.className + " antialiased max-w-[100vw] overflow-x-hidden"}
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <QueryProvider>
+            <NavBar />
+            {children}
+            <Footer />
+          </QueryProvider>
+        </ThemeProvider>
+        <Toaster />
+        <Analytics />
+      </body>
+    </html>
+  );
+}
