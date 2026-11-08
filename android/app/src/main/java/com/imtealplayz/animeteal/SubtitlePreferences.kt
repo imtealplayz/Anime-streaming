@@ -506,7 +506,7 @@ private fun SubtitleColorPicker(
     selected: Int,
     onSelect: (Int) -> Unit,
 ) {
-    var hexValue by androidx.compose.runtime.remember(selected) {
+    val hexState = androidx.compose.runtime.remember(selected) {
         androidx.compose.runtime.mutableStateOf("#%06X".format(selected and 0xFFFFFF))
     }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -541,12 +541,12 @@ private fun SubtitleColorPicker(
             }
         }
         OutlinedTextField(
-            value = hexValue,
-            onValueChange = { next ->
-                hexValue = next.take(7)
-                val hex = next.removePrefix("#")
-                if (hex.matches(Regex("[0-9a-fA-F]{6}"))) {
-                    onSelect(android.graphics.Color.parseColor("#$hex"))
+            value = hexState.value,
+            onValueChange = { nextValue: String ->
+                hexState.value = nextValue.take(7)
+                val digits = nextValue.removePrefix("#")
+                if (digits.matches(Regex("^[0-9a-fA-F]{6}$"))) {
+                    onSelect(android.graphics.Color.parseColor("#$digits"))
                 }
             },
             modifier = Modifier.width(132.dp),
