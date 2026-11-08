@@ -158,6 +158,8 @@ fun NativePlayerScreen(
     episode: EpisodeItem,
     stream: StreamSource,
     category: String,
+    subtitlePreferences: SubtitlePreferences,
+    onSubtitlePreferencesChange: (SubtitlePreferences) -> Unit,
     initialPositionMs: Long,
     hasAlternateSource: Boolean,
     hasRefreshedSources: Boolean,
@@ -441,11 +443,13 @@ fun NativePlayerScreen(
                             gestureDetector.onTouchEvent(event)
                             true
                         }
+                        applySubtitlePreferences(this, subtitlePreferences)
                     }
                 },
                 update = { view ->
                     view.player = player
                     view.keepScreenOn = true
+                    applySubtitlePreferences(view, subtitlePreferences)
                 },
             )
 
@@ -598,6 +602,7 @@ fun NativePlayerScreen(
                             PlayerAction("${speed}x") { dialog = "speed" }
                             PlayerAction("Audio") { dialog = "audio" }
                             PlayerAction("Subtitles") { dialog = "subtitles" }
+                            PlayerAction("Style") { dialog = "subtitle-style" }
                             PlayerAction("Quality") { dialog = "quality" }
                             PlayerAction("Volume") { dialog = "volume" }
                             PlayerAction(if (repeatEnabled) "Repeat on" else "Repeat off", repeatEnabled) {
@@ -716,6 +721,11 @@ fun NativePlayerScreen(
                     controlsVisible = true
                     interactionTick++
                 },
+                onDismiss = { dialog = null },
+            )
+            "subtitle-style" -> SubtitleSettingsDialog(
+                preferences = subtitlePreferences,
+                onChange = onSubtitlePreferencesChange,
                 onDismiss = { dialog = null },
             )
             "quality" -> PlayerOptionsDialog(
