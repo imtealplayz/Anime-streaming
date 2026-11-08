@@ -9,14 +9,14 @@ export const revalidate = 0;
 // Version 6+ verifies signedPayload and opens websiteUrl instead.
 const update = {
   protocolVersion: 1,
-  latestVersionCode: 7,
-  latestVersionName: "2.2.3",
+  latestVersionCode: 8,
+  latestVersionName: "2.2.4",
   minimumSupportedVersionCode: 5,
   downloadUrl:
     "https://github.com/imtealplayz/Anime-streaming/releases/download/android-latest/AnimeTeal.apk",
   websiteUrl: "https://animeteal.vercel.app/download",
   releaseNotes:
-    "AnimeTeal 2.2.3 adds native synopsis expansion, removes the Settings tab, and refreshes streaming providers after playback failures.",
+    "AnimeTeal 2.2.4 restores Settings with persistent subtitle customization, a live animated GIF preview, and in-player style controls.",
 };
 
 export async function GET() {
