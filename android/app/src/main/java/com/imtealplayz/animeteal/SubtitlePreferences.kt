@@ -418,34 +418,37 @@ private fun SubtitleSettingsContent(
 private fun SubtitlePreviewText(preferences: SubtitlePreferences) {
     val previewColor = Color(preferences.textColor).copy(alpha = preferences.textOpacity)
     val background = Color(preferences.backgroundColor).copy(alpha = preferences.backgroundOpacity)
+    val window = Color(preferences.windowColor).copy(alpha = preferences.windowOpacity)
     val shadow = Shadow(
         color = Color(preferences.edgeColor),
         offset = Offset(1.5f, 1.5f),
         blurRadius = if (preferences.edgeType == CaptionStyleCompat.EDGE_TYPE_OUTLINE) 2f else 4f,
     )
-    Surface(
-        color = Color(preferences.windowColor).copy(alpha = preferences.windowOpacity),
-        shape = RoundedCornerShape(4.dp),
+
+    Box(
+        modifier = Modifier.fillMaxWidth().background(window),
+        contentAlignment = Alignment.Center,
     ) {
-      Surface(
-        color = background,
-        shape = RoundedCornerShape(3.dp),
-      ) {
-        Text(
-            "Subtitles will look like this",
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            color = previewColor,
-            fontSize = preferences.textSizeSp.coerceIn(14f, 42f).sp,
-            fontWeight = if (preferences.bold) FontWeight.Bold else FontWeight.Normal,
-            fontStyle = if (preferences.italic) FontStyle.Italic else FontStyle.Normal,
-            fontFamily = composeFontFamily(preferences.fontFamily),
-            textAlign = TextAlign.Center,
-            lineHeight = (preferences.textSizeSp * 1.2f).sp,
-            style = androidx.compose.ui.text.TextStyle(
-                shadow = if (preferences.edgeType == CaptionStyleCompat.EDGE_TYPE_NONE) null else shadow,
-            ),
-        )
-      }
+        Surface(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
+            color = background,
+            shape = RoundedCornerShape(3.dp),
+        ) {
+            Text(
+                "Subtitles will look like this",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                color = previewColor,
+                fontSize = preferences.textSizeSp.coerceIn(14f, 42f).sp,
+                fontWeight = if (preferences.bold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (preferences.italic) FontStyle.Italic else FontStyle.Normal,
+                fontFamily = composeFontFamily(preferences.fontFamily),
+                textAlign = TextAlign.Center,
+                lineHeight = (preferences.textSizeSp * 1.2f).sp,
+                style = androidx.compose.ui.text.TextStyle(
+                    shadow = if (preferences.edgeType == CaptionStyleCompat.EDGE_TYPE_NONE) null else shadow,
+                ),
+            )
+        }
     }
 }
 
