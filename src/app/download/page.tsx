@@ -87,7 +87,7 @@ const DownloadPage = () => (
             Double-tap seeking, adjustable speed, volume, and quality controls.
           </Feature>
           <Feature icon={<Subtitles className="h-5 w-5" />} title="Subtitle options">
-            Subtitle and audio-track choices when the selected source provides them.
+            Customize subtitle size, font, colours, background, outline, opacity, and position, then preview the look over an animated scene. Track choices still depend on the selected source.
           </Feature>
           <Feature icon={<BookOpen className="h-5 w-5" />} title="Expandable synopses">
             Use Show more and Show less to expand long anime descriptions in the app and on the website.
