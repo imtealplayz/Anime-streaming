@@ -19,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -58,7 +57,7 @@ private val Panel2 = Color(0xFF111C25)
 private val Teal = Color(0xFF2DD4BF)
 private val Muted = Color(0xFF9AAAB4)
 
-private enum class MainTab { HOME, SEARCH, LIBRARY, SETTINGS }
+private enum class MainTab { HOME, SEARCH, LIBRARY }
 
 private data class WatchEntry(
     val anime: AnimeItem,
@@ -73,6 +72,7 @@ private data class PlaybackSession(
     val alternatives: List<StreamSource>,
     val category: String,
     val initialPositionMs: Long,
+    val sourceRefreshAttempts: Int = 0,
 )
 
 private class LocalLibrary(context: Context) {
@@ -214,6 +214,8 @@ fun AnimeTealApp() {
         episode: EpisodeItem,
         category: String = "sub",
         resumePositionMs: Long? = null,
+        refreshSources: Boolean = false,
+        refreshAttemptCount: Int = 0,
     ) {
         scope.launch {
             resolving = true
@@ -223,7 +225,14 @@ fun AnimeTealApp() {
                 // and returns source URLs ready for native Media3 playback. Avoid
                 // adding a 6-second single-provider timeout before that request.
                 resolvingMessage = "Finding playable ${category.uppercase()} sources…"
-                val discovered = api.servers(episode.id, category)
+                val discovered = try {
+                    api.servers(episode.id, category, refresh = refreshSources)
+                } catch (discoveryError: Exception) {
+                    if (discoveryError is kotlinx.coroutines.CancellationException) throw discoveryError
+                    // The provider-list endpoint can fail with a gateway error while
+                    // the backend's direct /stream fallback is still available.
+                    emptyList()
+                }
                 var candidates = discovered
                     .asSequence()
                     .flatMap { it.sources.asSequence() }
@@ -263,6 +272,7 @@ fun AnimeTealApp() {
                     alternatives = candidates.drop(1),
                     category = category,
                     initialPositionMs = savedPositionMs,
+                    sourceRefreshAttempts = if (refreshSources) refreshAttemptCount + 1 else refreshAttemptCount,
                 )
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Unable to resolve this episode."
@@ -303,6 +313,19 @@ fun AnimeTealApp() {
                         category = state.category,
                         initialPositionMs = state.initialPositionMs,
                         hasAlternateSource = state.alternatives.isNotEmpty(),
+                        hasRefreshedSources = state.sourceRefreshAttempts > 0,
+                        onRefreshSources = { position ->
+                            if (state.sourceRefreshAttempts == 0) {
+                                startEpisode(
+                                    state.anime,
+                                    state.episode,
+                                    state.category,
+                                    position,
+                                    refreshSources = true,
+                                    refreshAttemptCount = state.sourceRefreshAttempts,
+                                )
+                            }
+                        },
                         isResolvingLanguage = resolving,
                         resolveError = errorMessage,
                         onDismissResolveError = { errorMessage = null },
@@ -328,7 +351,14 @@ fun AnimeTealApp() {
                             }
                         },
                         onRetry = { position ->
-                            startEpisode(state.anime, state.episode, state.category, position)
+                            startEpisode(
+                                state.anime,
+                                state.episode,
+                                state.category,
+                                position,
+                                refreshSources = true,
+                                refreshAttemptCount = state.sourceRefreshAttempts,
+                            )
                         },
                     )
                 }
@@ -368,13 +398,7 @@ fun AnimeTealApp() {
                                     label = { Text("Library") },
                                     colors = navColors(),
                                 )
-                                NavigationBarItem(
-                                    selected = tab == MainTab.SETTINGS,
-                                    onClick = { tab = MainTab.SETTINGS },
-                                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                                    label = { Text("Settings") },
-                                    colors = navColors(),
-                                )
+
                             }
                         }
                     ) { padding ->
@@ -388,7 +412,6 @@ fun AnimeTealApp() {
                                     onAnimeClick = { selectedAnime = it },
                                     onResume = { startEpisode(it.anime, it.episode) },
                                 )
-                                MainTab.SETTINGS -> SettingsScreen()
                             }
                             if (resolving || errorMessage != null) {
                                 ResolveOverlay(resolving, errorMessage, { errorMessage = null }, resolvingMessage)
@@ -691,6 +714,7 @@ private fun AnimeDetailScreen(
     var loading by remember(anime.id) { mutableStateOf(true) }
     var error by remember(anime.id) { mutableStateOf<String?>(null) }
     var category by remember(anime.id) { mutableStateOf("sub") }
+    var synopsisExpanded by remember(anime.id) { mutableStateOf(false) }
 
     LaunchedEffect(api, anime.id) {
         loading = true
@@ -740,7 +764,23 @@ private fun AnimeDetailScreen(
                 }
                 item {
                     Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(info?.description?.takeIf { it.isNotBlank() } ?: anime.description.ifBlank { "No synopsis available." }, color = Color(0xFFC4D0D5), fontSize = 13.sp, lineHeight = 20.sp)
+                        val synopsis = info?.description?.takeIf { it.isNotBlank() } ?: anime.description.ifBlank { "No synopsis available." }
+                        Text(
+                            synopsis,
+                            color = Color(0xFFC4D0D5),
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            maxLines = if (synopsisExpanded) Int.MAX_VALUE else 5,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (synopsis.length > 240) {
+                            TextButton(onClick = { synopsisExpanded = !synopsisExpanded }) {
+                                Text(
+                                    if (synopsisExpanded) "Show less" else "Show more",
+                                    color = Teal,
+                                )
+                            }
+                        }
                         if (info?.genres?.isNotEmpty() == true) {
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 info.genres.forEach { genre ->
@@ -837,32 +877,6 @@ private fun LibraryScreen(
     }
 }
 
-@Composable
-private fun SettingsScreen() {
-    Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        AppHeader(title = "Settings")
-        Text("AnimeTeal service", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "AnimeTeal connects automatically to its managed anime catalogue and streaming service. No API setup or manual configuration is required.",
-            color = Muted,
-            fontSize = 13.sp,
-            lineHeight = 19.sp,
-        )
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = Panel,
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, Color(0xFF263B43)),
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("SERVICE STATUS", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                Text("Managed automatically", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Text("If anime or playback cannot load, use Retry. Provider availability can vary by title and region.", color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
-            }
-        }
-        Text("Your favorites and Continue Watching history stay stored locally on this device.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
-    }
-}
 @Composable
 private fun ErrorPanel(message: String, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(24.dp).clip(RoundedCornerShape(16.dp)).background(Panel).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

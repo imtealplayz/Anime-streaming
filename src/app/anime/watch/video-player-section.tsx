@@ -79,9 +79,14 @@ const VideoPlayerSection = () => {
   const [anirakuFallbackLoading, setAnirakuFallbackLoading] = useState(false);
   const [anirakuFallbackError, setAnirakuFallbackError] = useState("");
   const [anirakuRetryKey, setAnirakuRetryKey] = useState(0);
+  const [anirakuAutoRefreshAttempted, setAnirakuAutoRefreshAttempted] = useState(false);
 
   useEffect(() => {
     setUseFallback(false);
+    setAnirakuFallbackPools({ sub: null, dub: null });
+    setAnirakuFallbackError("");
+    setAnirakuRetryKey(0);
+    setAnirakuAutoRefreshAttempted(false);
   }, [activeEpisodeId]);
 
   useEffect(() => {
@@ -219,8 +224,9 @@ const VideoPlayerSection = () => {
           animeId: String(animeId),
           episode: String(episode),
           lang,
+          refresh: anirakuRetryKey > 0 ? "1" : "0",
         });
-        const response = await fetch("/api/v1/servers?" + params.toString(), {
+        const response = await fetch("/api/aniraku/servers?" + params.toString(), {
           method: "GET",
           cache: "no-store",
           signal: controller.signal,
@@ -427,7 +433,7 @@ const VideoPlayerSection = () => {
     return (
       <div className="flex flex-col gap-4 w-full">
         <AnimeTealPlayer
-          key={`${activeCategory}-${anirakuFallbackData.sources[0]?.url}`}
+          key={`${activeCategory}-${anirakuFallbackData.sources[0]?.url}-${anirakuRetryKey}`}
           episodeInfo={anirakuFallbackData}
           serversData={{
             episodeId: activeEpisodeId,
@@ -448,8 +454,14 @@ const VideoPlayerSection = () => {
               ...current,
               [activeCategory]: null,
             }));
+            if (!anirakuAutoRefreshAttempted) {
+              setAnirakuAutoRefreshAttempted(true);
+              setAnirakuFallbackError("The stream failed. Refreshing available providers…");
+              setAnirakuRetryKey((value) => value + 1);
+              return;
+            }
             setAnirakuFallbackError(
-              `The direct ${activeCategory.toUpperCase()} stream failed to start. Try the other language or retry source search.`,
+              `The direct ${activeCategory.toUpperCase()} stream failed. Try the other language or retry source search.`,
             );
           }}
         />

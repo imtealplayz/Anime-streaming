@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish this signed APK to the public download link after you have tested it"
+        description: "Publish the reviewed, release-signed APK to the official download link"
         required: true
         type: boolean
         default: false
@@ -103,9 +103,9 @@ jobs:
           tag_name: android-latest
           name: AnimeTeal Android (Latest)
           body: |
-            AnimeTeal Android v2.2.2 (versionCode 6).
+            AnimeTeal Android v2.2.3 (versionCode 7).
 
-            Includes the signed update checker. Future app updates will be verified before the app opens the official AnimeTeal download page.
+            Adds native Show more/Show less synopsis controls, removes the Settings tab, and refreshes provider discovery after playback failures. Includes the signed update checker.
 
             Download AnimeTeal.apk and install it on your Android device.
             This release uses AnimeTeal's permanent Android signing key. Users upgrading from v2.2.1 can install directly over the existing app.

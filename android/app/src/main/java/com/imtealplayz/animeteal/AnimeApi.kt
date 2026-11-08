@@ -433,9 +433,19 @@ class AnimeApi {
         return id to ep
     }
 
-    suspend fun servers(episodeId: String, category: String): List<EpisodeServer> {
+    suspend fun servers(
+        episodeId: String,
+        category: String,
+        refresh: Boolean = false,
+    ): List<EpisodeServer> {
         val (id, ep) = episodeKey(episodeId)
-        val a = array("/api/v1/servers", mapOf("animeId" to id.toString(), "episode" to ep.toString(), "lang" to category))
+        val query = mutableMapOf(
+            "animeId" to id.toString(),
+            "episode" to ep.toString(),
+            "lang" to category,
+        )
+        if (refresh) query["refresh"] = "1"
+        val a = array("/api/v1/servers", query)
         return buildList {
             for (i in 0 until a.length()) {
                 val item = a.optJSONObject(i) ?: continue

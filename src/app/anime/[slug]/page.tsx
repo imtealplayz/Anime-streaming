@@ -28,7 +28,7 @@ const Synopsis = ({ description }: { description: string }) => {
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;|&#160;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
   const canExpand = plainDescription.length > 240;
 

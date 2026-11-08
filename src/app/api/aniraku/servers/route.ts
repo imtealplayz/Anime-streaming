@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
   const animeId = request.nextUrl.searchParams.get("animeId") || "";
   const episode = request.nextUrl.searchParams.get("episode") || "";
   const lang = request.nextUrl.searchParams.get("lang") === "dub" ? "dub" : "sub";
+  const refresh = request.nextUrl.searchParams.get("refresh") === "1";
 
   if (!/^\d+$/.test(animeId) || Number(animeId) <= 0 ||
       !/^\d+$/.test(episode) || Number(episode) <= 0) {
@@ -18,6 +19,7 @@ export async function GET(request: NextRequest) {
   upstreamUrl.searchParams.set("animeId", animeId);
   upstreamUrl.searchParams.set("episode", episode);
   upstreamUrl.searchParams.set("lang", lang);
+  if (refresh) upstreamUrl.searchParams.set("refresh", "1");
 
   try {
     const upstream = await fetch(upstreamUrl, {

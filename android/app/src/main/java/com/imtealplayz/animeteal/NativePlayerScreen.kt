@@ -160,6 +160,8 @@ fun NativePlayerScreen(
     category: String,
     initialPositionMs: Long,
     hasAlternateSource: Boolean,
+    hasRefreshedSources: Boolean,
+    onRefreshSources: (Long) -> Unit,
     isResolvingLanguage: Boolean,
     resolveError: String?,
     onDismissResolveError: () -> Unit,
@@ -283,6 +285,8 @@ fun NativePlayerScreen(
     }
 
     val latestHasAlternative by rememberUpdatedState(hasAlternateSource)
+    val latestHasRefreshedSources by rememberUpdatedState(hasRefreshedSources)
+    val latestRefreshSources by rememberUpdatedState(onRefreshSources)
     val latestTryNext by rememberUpdatedState(onTryNextSource)
     val latestOnProgress by rememberUpdatedState(onProgress)
     val latestOnBack by rememberUpdatedState(onBack)
@@ -311,7 +315,12 @@ fun NativePlayerScreen(
                     errorHandled.value = true
                     playerError = "This provider failed. Trying the next available source…"
                     latestTryNext(player.currentPosition.coerceAtLeast(0L))
+                } else if (!errorHandled.value && !latestHasRefreshedSources) {
+                    errorHandled.value = true
+                    playerError = "No working source. Refreshing the provider list…"
+                    latestRefreshSources(player.currentPosition.coerceAtLeast(0L))
                 } else {
+                    errorHandled.value = true
                     playerError = error.message ?: "The video stream could not be played."
                     isBuffering = false
                     controlsVisible = true
