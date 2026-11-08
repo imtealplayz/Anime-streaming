@@ -1,3 +1,5 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.imtealplayz.animeteal
 
 import android.content.Context
@@ -24,6 +26,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Divider
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -43,10 +47,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.width
 import androidx.compose.ui.window.Dialog
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import java.util.Locale
 import kotlin.math.roundToInt
 
 private val SubtitleTeal = Color(0xFF2DD4BF)
@@ -203,7 +207,7 @@ fun SubtitleSettingsDialog(
             shape = RoundedCornerShape(22.dp),
             border = BorderStroke(1.dp, Color(0xFF263B43)),
         ) {
-            Column(Modifier.height(620.dp)) {
+            Column(Modifier.heightIn(max = 560.dp)) {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 13.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -419,9 +423,13 @@ private fun SubtitlePreviewText(preferences: SubtitlePreferences) {
         blurRadius = if (preferences.edgeType == CaptionStyleCompat.EDGE_TYPE_OUTLINE) 2f else 4f,
     )
     Surface(
+        color = Color(preferences.windowColor).copy(alpha = preferences.windowOpacity),
+        shape = RoundedCornerShape(4.dp),
+    ) {
+      Surface(
         color = background,
         shape = RoundedCornerShape(3.dp),
-    ) {
+      ) {
         Text(
             "Subtitles will look like this",
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -436,6 +444,7 @@ private fun SubtitlePreviewText(preferences: SubtitlePreferences) {
                 shadow = if (preferences.edgeType == CaptionStyleCompat.EDGE_TYPE_NONE) null else shadow,
             ),
         )
+      }
     }
 }
 
@@ -493,30 +502,62 @@ private fun SubtitleColorPicker(
     selected: Int,
     onSelect: (Int) -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        subtitlePalette.forEach { colorValue ->
-            val chosen = selected == colorValue
-            Surface(
-                onClick = { onSelect(colorValue) },
-                modifier = Modifier.size(if (chosen) 34.dp else 30.dp),
-                shape = CircleShape,
-                color = Color(colorValue),
-                border = BorderStroke(
-                    if (chosen) 2.dp else 1.dp,
-                    if (chosen) SubtitleTeal else Color(0xFF53636C),
-                ),
-            ) {
-                if (chosen) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("✓", color = if (colorValue == android.graphics.Color.WHITE || colorValue == android.graphics.Color.YELLOW) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+    var hexValue by androidx.compose.runtime.remember(selected) {
+        androidx.compose.runtime.mutableStateOf("#%06X".format(selected and 0xFFFFFF))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            subtitlePalette.forEach { colorValue ->
+                val chosen = selected == colorValue
+                Surface(
+                    onClick = { onSelect(colorValue) },
+                    modifier = Modifier.size(if (chosen) 34.dp else 30.dp),
+                    shape = CircleShape,
+                    color = Color(colorValue),
+                    border = BorderStroke(
+                        if (chosen) 2.dp else 1.dp,
+                        if (chosen) SubtitleTeal else Color(0xFF53636C),
+                    ),
+                ) {
+                    if (chosen) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                "✓",
+                                color = if (colorValue == android.graphics.Color.WHITE || colorValue == android.graphics.Color.YELLOW) Color.Black else Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
                     }
                 }
             }
         }
+        OutlinedTextField(
+            value = hexValue,
+            onValueChange = { next ->
+                hexValue = next.take(7)
+                val hex = next.removePrefix("#")
+                if (hex.matches(Regex("[0-9a-fA-F]{6}"))) {
+                    onSelect(android.graphics.Color.parseColor("#$hex"))
+                }
+            },
+            modifier = Modifier.width(132.dp),
+            singleLine = true,
+            label = { Text("Custom hex") },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = SubtitleTeal,
+                unfocusedBorderColor = Color(0xFF35444D),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                cursorColor = SubtitleTeal,
+                focusedLabelColor = SubtitleTeal,
+                unfocusedLabelColor = SubtitleMuted,
+            ),
+        )
     }
 }
 
