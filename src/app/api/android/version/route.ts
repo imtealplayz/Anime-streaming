@@ -35,7 +35,7 @@ export async function GET() {
     const privateKey = createPrivateKey({
       key: Buffer.from(encodedPrivateKey, "base64"),
       format: "der",
-      type: "pkcs8",
+      type: "pkcs1",
     });
     const signedPayload = Buffer.from(JSON.stringify(update), "utf8").toString("base64");
     const signature = sign(
