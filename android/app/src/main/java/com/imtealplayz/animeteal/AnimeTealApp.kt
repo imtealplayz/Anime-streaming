@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,7 +58,7 @@ private val Panel2 = Color(0xFF111C25)
 private val Teal = Color(0xFF2DD4BF)
 private val Muted = Color(0xFF9AAAB4)
 
-private enum class MainTab { HOME, SEARCH, LIBRARY }
+private enum class MainTab { HOME, SEARCH, LIBRARY, SETTINGS }
 
 private data class WatchEntry(
     val anime: AnimeItem,
@@ -186,6 +187,13 @@ fun AnimeTealApp() {
     val context = LocalContext.current
     val library = remember { LocalLibrary(context) }
     val api = remember { AnimeApi() }
+    val subtitleStore = remember { SubtitlePreferencesStore(context) }
+    var subtitlePreferences by remember { mutableStateOf(subtitleStore.load()) }
+
+    fun changeSubtitlePreferences(next: SubtitlePreferences) {
+        subtitlePreferences = next
+        subtitleStore.save(next)
+    }
 
     var tab by remember { mutableStateOf(MainTab.HOME) }
     var selectedAnime by remember { mutableStateOf<AnimeItem?>(null) }
@@ -311,6 +319,8 @@ fun AnimeTealApp() {
                         episode = state.episode,
                         stream = state.stream,
                         category = state.category,
+                        subtitlePreferences = subtitlePreferences,
+                        onSubtitlePreferencesChange = ::changeSubtitlePreferences,
                         initialPositionMs = state.initialPositionMs,
                         hasAlternateSource = state.alternatives.isNotEmpty(),
                         hasRefreshedSources = state.sourceRefreshAttempts > 0,
@@ -398,7 +408,13 @@ fun AnimeTealApp() {
                                     label = { Text("Library") },
                                     colors = navColors(),
                                 )
-
+                                NavigationBarItem(
+                                    selected = tab == MainTab.SETTINGS,
+                                    onClick = { tab = MainTab.SETTINGS },
+                                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                                    label = { Text("Settings") },
+                                    colors = navColors(),
+                                )
                             }
                         }
                     ) { padding ->
@@ -411,6 +427,10 @@ fun AnimeTealApp() {
                                     history = history,
                                     onAnimeClick = { selectedAnime = it },
                                     onResume = { startEpisode(it.anime, it.episode) },
+                                )
+                                MainTab.SETTINGS -> SubtitleSettingsScreen(
+                                    preferences = subtitlePreferences,
+                                    onChange = ::changeSubtitlePreferences,
                                 )
                             }
                             if (resolving || errorMessage != null) {
