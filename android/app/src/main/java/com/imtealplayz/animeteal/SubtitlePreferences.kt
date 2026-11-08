@@ -262,7 +262,9 @@ private fun SubtitleSettingsContent(
                     letterSpacing = 1.5.sp,
                 )
                 Box(
-                    Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 14.dp),
+                    Modifier.fillMaxSize()
+                        .padding(horizontal = 8.dp)
+                        .padding(bottom = 14.dp + 190.dp * preferences.bottomPaddingFraction),
                     contentAlignment = Alignment.BottomCenter,
                 ) {
                     SubtitlePreviewText(preferences)
