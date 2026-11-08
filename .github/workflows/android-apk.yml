@@ -97,17 +97,18 @@ jobs:
           retention-days: 30
 
       - name: Publish direct APK download
-        if: ${{ inputs.publish }}
+        if: ${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, '[release]')) || inputs.publish }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest
           name: AnimeTeal Android (Latest)
           body: |
-            Latest signed AnimeTeal Android release.
+            AnimeTeal Android v2.2.2 (versionCode 6).
+
+            Includes the signed update checker. Future app updates will be verified before the app opens the official AnimeTeal download page.
 
             Download AnimeTeal.apk and install it on your Android device.
-            This release uses AnimeTeal's permanent Android signing key.
-            Users upgrading from the previous signing certificate must uninstall the previous app once before installing this release.
+            This release uses AnimeTeal's permanent Android signing key. Users upgrading from v2.2.1 can install directly over the existing app.
           target_commitish: main
           files: AnimeTeal.apk
           overwrite_files: true
