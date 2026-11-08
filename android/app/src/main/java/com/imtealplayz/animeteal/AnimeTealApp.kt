@@ -410,7 +410,7 @@ fun AnimeTealApp() {
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("Version ${availableUpdate.versionName} is ready to download.")
+                        Text("Version ${availableUpdate.versionName} is ready. Open AnimeTeal's official download page to get the update.")
                         if (availableUpdate.releaseNotes.isNotBlank()) {
                             Text(
                                 availableUpdate.releaseNotes,
@@ -432,7 +432,7 @@ fun AnimeTealApp() {
                         onClick = {
                             try {
                                 context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(availableUpdate.downloadUrl))
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(availableUpdate.websiteUrl))
                                 )
                             } catch (_: Exception) {
                                 // Keep the app usable if no browser can handle the link.
@@ -440,7 +440,7 @@ fun AnimeTealApp() {
                             if (!availableUpdate.isRequired) updateInfo = null
                         }
                     ) {
-                        Text("Download update", color = Teal)
+                        Text("Open download page", color = Teal)
                     }
                 },
                 dismissButton = {

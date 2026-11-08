@@ -30,3 +30,16 @@ The GitHub Actions workflow builds a debug APK automatically when `android/**` c
 4. Extract `app-debug.apk` and install it on an Android device.
 
 This is a personal debug APK, not a Play Store release.
+
+
+## Signed app updates
+
+The app checks `https://animeteal.vercel.app/api/android/version` on startup. Version 6 and later verify the update manifest with an embedded RSA public key before trusting its version, release notes, or website destination.
+
+- The matching private key is stored only in Vercel as the sensitive Production variable `ANDROID_UPDATE_SIGNING_PRIVATE_KEY_B64`.
+- Keep the existing key permanently. Do not rotate it unless a new app build is prepared with the replacement public key.
+- To publish an update, increment `versionCode` and `versionName` in `android/app/build.gradle.kts`, build and test the APK, publish the GitHub release asset at the existing `android-latest/AnimeTeal.apk` URL, then update the signed manifest values in `src/app/api/android/version/route.ts` and deploy the website.
+- The manifest keeps the GitHub APK URL as a legacy field so version 5 can install version 6. Version 6 and later open `https://animeteal.vercel.app/download` instead.
+- Android's package installer still enforces the APK's signing-certificate continuity. The RSA manifest signature authenticates update metadata; it does not replace APK signing.
+
+Never commit or share the private signing key.

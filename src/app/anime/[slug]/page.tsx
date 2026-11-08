@@ -22,6 +22,54 @@ import { useParams } from "next/navigation";
 import { useGetAnimeDetails } from "@/query/get-anime-details";
 import Loading from "@/app/loading";
 
+const Synopsis = ({ description }: { description: string }) => {
+  const [expanded, setExpanded] = React.useState(false);
+  const plainDescription = description
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\\s+/g, " ")
+    .trim();
+  const canExpand = plainDescription.length > 240;
+
+  React.useEffect(() => {
+    setExpanded(false);
+  }, [description]);
+
+  return (
+    <div>
+      <div
+        id="anime-synopsis"
+        className={`relative transition-[max-height] duration-300 ease-in-out ${
+          canExpand && !expanded
+            ? "max-h-[8.5rem] overflow-hidden"
+            : canExpand
+              ? "max-h-[4000px]"
+              : ""
+        }`}
+      >
+        <div className="text-sm md:text-base leading-relaxed text-slate-300 space-y-3">
+          {parse(description)}
+        </div>
+        {canExpand && !expanded && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-gradient-to-t from-[#0d121d] to-transparent" />
+        )}
+      </div>
+      {canExpand && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls="anime-synopsis"
+          onClick={() => setExpanded((current) => !current)}
+          className="mt-3 inline-flex items-center text-sm font-bold text-indigo-300 transition-colors hover:text-indigo-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d121d] rounded"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+};
+
 const Page = () => {
   const { slug } = useParams();
   const { data: anime, isLoading } = useGetAnimeDetails(slug as string);
@@ -193,9 +241,7 @@ const Page = () => {
               <h3 className="text-base font-extrabold text-white tracking-wide border-b border-white/10 pb-3">
                 Synopsis
               </h3>
-              <div className="text-sm md:text-base leading-relaxed text-slate-300 space-y-3">
-                {parse(anime.anime.info.description || "No synopsis available.")}
-              </div>
+              <Synopsis description={anime.anime.info.description || "No synopsis available."} />
             </div>
           </TabsContent>
 
