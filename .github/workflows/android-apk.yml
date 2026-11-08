@@ -105,7 +105,7 @@ jobs:
           body: |
             AnimeTeal Android v2.2.4 (versionCode 8).
 
-            Restores Settings with persistent subtitle customization, animated GIF preview, and in-player subtitle styling. Includes the signed update checker.
+            Restores Settings with persistent subtitle customization: font size and family, bold/italic, preset and custom hex colours, opacity, text background/window, edge effects, and vertical positioning. Includes a live preview using the supplied animated GIF and the same Style editor in the player. Preferences are saved on-device. The signed update checker is retained.
 
             Download AnimeTeal.apk and install it on your Android device.
             This release uses AnimeTeal's permanent Android signing key. Users upgrading from v2.2.1 can install directly over the existing app.
