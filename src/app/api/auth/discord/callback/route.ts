@@ -30,9 +30,21 @@ function avatarUrl(profile: DiscordProfile): string {
     return "https://cdn.discordapp.com/avatars/" + profile.id + "/" + profile.avatar + "." + extension + "?size=256";
   }
   const discriminator = Number(profile.discriminator || 0);
-  const index = Number.isFinite(discriminator) && discriminator > 0
-    ? discriminator % 5
-    : (BigInt(profile.id) >> 22n) % 6n;
+  let index: number;
+  if (Number.isFinite(discriminator) && discriminator > 0) {
+    index = discriminator % 5;
+  } else {
+    // Discord snowflakes are larger than Number.MAX_SAFE_INTEGER. Compute
+    // floor((id / 2^22) % 6) using decimal-string arithmetic instead of BigInt,
+    // keeping compatibility with this project's ES2019 TypeScript target.
+    const modulus = 6 * 4194304;
+    let remainder = 0;
+    for (const digit of profile.id) {
+      if (digit < "0" || digit > "9") return "https://cdn.discordapp.com/embed/avatars/0.png";
+      remainder = (remainder * 10 + Number(digit)) % modulus;
+    }
+    index = Math.floor(remainder / 4194304);
+  }
   return "https://cdn.discordapp.com/embed/avatars/" + index.toString() + ".png";
 }
 
