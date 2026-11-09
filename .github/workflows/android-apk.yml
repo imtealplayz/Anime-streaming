@@ -103,9 +103,9 @@ jobs:
           tag_name: android-latest
           name: AnimeTeal Android (Latest)
           body: |
-            AnimeTeal Android v2.2.4 (versionCode 8).
+            AnimeTeal Android v2.2.5 (versionCode 9).
 
-            Restores Settings with persistent subtitle customization: font size and family, bold/italic, preset and custom hex colours, opacity, text background/window, edge effects, and vertical positioning. Includes a live preview using the supplied animated GIF and the same Style editor in the player. Preferences are saved on-device. The signed update checker is retained.
+            Adds Discord account sign-in on Android using a browser-based OAuth flow and one-time PKCE-protected app handoff. Adds shared anime comments with Discord display names and avatars. Sessions are stored encrypted on-device; the existing subtitle customization, player features, and signed update checker are retained.
 
             Download AnimeTeal.apk and install it on your Android device.
             This release uses AnimeTeal's permanent Android signing key. Users upgrading from v2.2.1 can install directly over the existing app.

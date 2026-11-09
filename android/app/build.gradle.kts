@@ -15,8 +15,8 @@ android {
         applicationId = "com.imtealplayz.animeteal"
         minSdk = 24
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.2.4"
+        versionCode = 9
+        versionName = "2.2.5"
     }
 
     signingConfigs {
