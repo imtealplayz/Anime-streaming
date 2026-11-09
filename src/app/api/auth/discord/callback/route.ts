@@ -7,7 +7,6 @@ import {
   discordRedirectUri,
   hashSecret,
   isAdminDiscordId,
-  pkceChallenge,
   sessionCookieOptions,
   siteUrl,
 } from "@/lib/animeteal-auth";

@@ -3,7 +3,6 @@ import {
   createOpaqueToken,
   hashSecret,
   pkceChallenge,
-  publicUser,
 } from "@/lib/animeteal-auth";
 import { getAnimeTealDb } from "@/lib/mongodb";
 
