@@ -41,6 +41,14 @@ data class HomeFeed(
     val spotlight: List<AnimeItem>, val trending: List<AnimeItem>,
     val latest: List<AnimeItem>, val popular: List<AnimeItem>,
 )
+data class AnimeComment(
+    val id: String,
+    val content: String,
+    val spoiler: Boolean,
+    val displayName: String,
+    val avatarUrl: String,
+    val createdAt: String,
+)
 
 /** Fixed AnimeTeal service client; endpoint is app-owned, not user-editable. */
 class AnimeApi {
@@ -560,4 +568,73 @@ class AnimeApi {
             text(chosen, "type", "mime").ifBlank { if (streamUrl.contains(".m3u8", true)) "hls" else "mp4" },
         )
     }
+
+    suspend fun animeComments(animeId: String): List<AnimeComment> = withContext(Dispatchers.IO) {
+        val url = "https://animeteal.vercel.app/api/comments".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("animeId", animeId)
+            .build()
+        val request = Request.Builder().url(url).get().header("Accept", "application/json").build()
+        client.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val message = try { JSONObject(raw).optString("error") } catch (_: Exception) { "" }
+                throw IOException(message.ifBlank { "Comments could not be loaded." })
+            }
+            val items = JSONObject(raw).optJSONArray("items") ?: JSONArray()
+            buildList {
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    add(
+                        AnimeComment(
+                            id = item.optString("id"),
+                            content = item.optString("content"),
+                            spoiler = item.optBoolean("spoiler"),
+                            displayName = item.optString("displayName", "AnimeTeal user"),
+                            avatarUrl = item.optString("avatarUrl"),
+                            createdAt = item.optString("createdAt"),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    suspend fun postAnimeComment(
+        animeId: String,
+        animeTitle: String,
+        content: String,
+        spoiler: Boolean,
+        accessToken: String,
+    ): AnimeComment = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("animeId", animeId)
+            .put("animeTitle", animeTitle)
+            .put("content", content)
+            .put("spoiler", spoiler)
+        val request = Request.Builder()
+            .url("https://animeteal.vercel.app/api/comments")
+            .post(payload.toString().toRequestBody(jsonType))
+            .header("Accept", "application/json")
+            .header("Authorization", "Bearer $accessToken")
+            .build()
+        client.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val message = try { JSONObject(raw).optString("error") } catch (_: Exception) { "" }
+                throw IOException(message.ifBlank { "Your comment could not be posted." })
+            }
+            val item = JSONObject(raw).optJSONObject("item")
+                ?: throw IOException("AnimeTeal returned an invalid comment.")
+            AnimeComment(
+                id = item.optString("id"),
+                content = item.optString("content"),
+                spoiler = item.optBoolean("spoiler"),
+                displayName = item.optString("displayName", "AnimeTeal user"),
+                avatarUrl = item.optString("avatarUrl"),
+                createdAt = item.optString("createdAt"),
+            )
+        }
+    }
+
 }

@@ -12,6 +12,7 @@ import { ROUTES } from "@/constants/routes";
 import React, { ReactNode, useEffect, useState } from "react";
 
 import SearchBar from "./search-bar";
+import AccountControl from "./account-control";
 import { MenuIcon, X, Compass, Home, Download } from "lucide-react";
 import useScrollPosition from "@/hooks/use-scroll-position";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "./ui/sheet";
@@ -95,8 +96,11 @@ const NavBar = () => {
           ))}
         </nav>
 
-        <div className="hidden w-full max-w-md items-center gap-5 lg:flex">
-          <SearchBar />
+        <div className="hidden w-full max-w-md items-center gap-3 lg:flex">
+          <div className="min-w-0 flex-1">
+            <SearchBar />
+          </div>
+          <AccountControl />
         </div>
         <div className="flex items-center gap-3 lg:hidden">
           <Link
@@ -147,6 +151,7 @@ const MobileMenuSheet = ({ trigger }: { trigger: ReactNode }) => {
                 <p className="text-xs text-slate-400">Find your next favourite</p>
               </div>
             </div>
+            <AccountControl />
             {menuItems.map((menu) => (
               <Link
                 href={menu.href}

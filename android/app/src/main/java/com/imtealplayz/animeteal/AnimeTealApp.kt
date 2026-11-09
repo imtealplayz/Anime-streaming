@@ -188,6 +188,11 @@ fun AnimeTealApp() {
     val library = remember { LocalLibrary(context) }
     val api = remember { AnimeApi() }
     val subtitleStore = remember { SubtitlePreferencesStore(context) }
+    val discordAuth = remember { DiscordAuthManager(context) }
+    val mainActivity = context as? MainActivity
+    var authAccount by remember { mutableStateOf(discordAuth.current()) }
+    var authBusy by remember { mutableStateOf(false) }
+    var authError by remember { mutableStateOf<String?>(null) }
     var subtitlePreferences by remember { mutableStateOf(subtitleStore.load()) }
 
     fun changeSubtitlePreferences(next: SubtitlePreferences) {
@@ -209,6 +214,33 @@ fun AnimeTealApp() {
 
     LaunchedEffect(Unit) {
         updateInfo = AppUpdateChecker.check(context)
+        authAccount = discordAuth.refresh() ?: discordAuth.current()
+    }
+
+    val pendingAuthTicket = mainActivity?.authTicket
+    LaunchedEffect(pendingAuthTicket) {
+        val ticket = pendingAuthTicket ?: return@LaunchedEffect
+        authBusy = true
+        authError = null
+        try {
+            authAccount = discordAuth.exchangeTicket(ticket)
+        } catch (error: Exception) {
+            authError = error.message ?: "Discord sign-in could not be completed."
+        } finally {
+            mainActivity?.clearAuthTicket()
+            authBusy = false
+        }
+    }
+
+    LaunchedEffect(authAccount?.accessToken) {
+        if (authAccount != null) {
+            while (true) {
+                delay(15 * 60 * 1000L)
+                val refreshed = discordAuth.refresh()
+                authAccount = refreshed
+                if (refreshed == null) break
+            }
+        }
     }
 
     fun toggleFavorite(item: AnimeItem) {
@@ -377,6 +409,15 @@ fun AnimeTealApp() {
                         api = api,
                         anime = selectedAnime!!,
                         isFavorite = favorites.any { it.id == selectedAnime!!.id },
+                        account = authAccount,
+                        onLogin = {
+                            try {
+                                authError = null
+                                discordAuth.beginLogin(context)
+                            } catch (error: Exception) {
+                                authError = error.message ?: "Could not open Discord sign-in."
+                            }
+                        },
                         onBack = { selectedAnime = null },
                         onFavorite = { toggleFavorite(selectedAnime!!) },
                         onPlay = { episode, category -> startEpisode(selectedAnime!!, episode, category) },
@@ -428,10 +469,35 @@ fun AnimeTealApp() {
                                     onAnimeClick = { selectedAnime = it },
                                     onResume = { startEpisode(it.anime, it.episode) },
                                 )
-                                MainTab.SETTINGS -> SubtitleSettingsScreen(
-                                    preferences = subtitlePreferences,
-                                    onChange = ::changeSubtitlePreferences,
-                                )
+                                MainTab.SETTINGS -> Column(Modifier.fillMaxSize()) {
+                                    AccountSettingsCard(
+                                        account = authAccount,
+                                        loading = authBusy,
+                                        error = authError,
+                                        onSignIn = {
+                                            try {
+                                                authError = null
+                                                discordAuth.beginLogin(context)
+                                            } catch (error: Exception) {
+                                                authError = error.message ?: "Could not open Discord sign-in."
+                                            }
+                                        },
+                                        onSignOut = {
+                                            scope.launch {
+                                                authBusy = true
+                                                discordAuth.logout()
+                                                authAccount = null
+                                                authBusy = false
+                                            }
+                                        },
+                                    )
+                                    Box(Modifier.weight(1f)) {
+                                        SubtitleSettingsScreen(
+                                            preferences = subtitlePreferences,
+                                            onChange = ::changeSubtitlePreferences,
+                                        )
+                                    }
+                                }
                             }
                             if (resolving || errorMessage != null) {
                                 ResolveOverlay(resolving, errorMessage, { errorMessage = null }, resolvingMessage)
@@ -725,6 +791,8 @@ private fun AnimeDetailScreen(
     api: AnimeApi,
     anime: AnimeItem,
     isFavorite: Boolean,
+    account: DiscordAccount?,
+    onLogin: () -> Unit,
     onBack: () -> Unit,
     onFavorite: () -> Unit,
     onPlay: (EpisodeItem, String) -> Unit,
@@ -735,6 +803,14 @@ private fun AnimeDetailScreen(
     var error by remember(anime.id) { mutableStateOf<String?>(null) }
     var category by remember(anime.id) { mutableStateOf("sub") }
     var synopsisExpanded by remember(anime.id) { mutableStateOf(false) }
+    var comments by remember(anime.id) { mutableStateOf<List<AnimeComment>>(emptyList()) }
+    var commentsLoading by remember(anime.id) { mutableStateOf(true) }
+    var commentText by remember(anime.id) { mutableStateOf("") }
+    var commentSpoiler by remember(anime.id) { mutableStateOf(false) }
+    var commentError by remember(anime.id) { mutableStateOf<String?>(null) }
+    var postingComment by remember(anime.id) { mutableStateOf(false) }
+    var revealedComments by remember(anime.id) { mutableStateOf<Set<String>>(emptySet()) }
+    val commentScope = rememberCoroutineScope()
 
     LaunchedEffect(api, anime.id) {
         loading = true
@@ -751,6 +827,18 @@ private fun AnimeDetailScreen(
             error = e.message ?: "Could not load this anime."
         } finally {
             loading = false
+        }
+    }
+
+    LaunchedEffect(api, anime.id) {
+        commentsLoading = true
+        try {
+            comments = api.animeComments(anime.id)
+            commentError = null
+        } catch (e: Exception) {
+            commentError = e.message ?: "Comments are temporarily unavailable."
+        } finally {
+            commentsLoading = false
         }
     }
 
@@ -813,6 +901,118 @@ private fun AnimeDetailScreen(
                         if (error != null) Text(error!!, color = Color(0xFFFF9A9A), fontSize = 12.sp)
                     }
                 }
+
+                item {
+                    Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Community discussion", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Spacer(Modifier.weight(1f))
+                            Text("${comments.size} comments", color = Muted, fontSize = 10.sp)
+                        }
+
+                        if (account == null) {
+                            Text("Sign in with Discord to post a comment. Everyone can read the discussion.", color = Muted, fontSize = 11.sp)
+                            Button(onClick = onLogin, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5865F2), contentColor = Color.White)) {
+                                Text("Continue with Discord")
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = commentText,
+                                onValueChange = { commentText = it.take(1000) },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Share your thoughts about this anime…") },
+                                minLines = 2,
+                                maxLines = 5,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Teal,
+                                    unfocusedBorderColor = Color(0xFF26353E),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    cursorColor = Teal,
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = commentSpoiler,
+                                    onCheckedChange = { commentSpoiler = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = Teal),
+                                )
+                                Text("Contains spoilers", color = Muted, fontSize = 11.sp)
+                                Spacer(Modifier.weight(1f))
+                                Text("${commentText.length}/1000", color = Muted, fontSize = 10.sp)
+                            }
+                            Button(
+                                onClick = {
+                                    val currentAccount = account
+                                    val text = commentText.trim()
+                                    if (currentAccount != null && text.isNotBlank() && !postingComment) {
+                                        commentScope.launch {
+                                            postingComment = true
+                                            commentError = null
+                                            try {
+                                                val posted = api.postAnimeComment(
+                                                    anime.id,
+                                                    anime.name,
+                                                    text,
+                                                    commentSpoiler,
+                                                    currentAccount.accessToken,
+                                                )
+                                                comments = listOf(posted) + comments
+                                                commentText = ""
+                                                commentSpoiler = false
+                                            } catch (e: Exception) {
+                                                commentError = e.message ?: "Your comment could not be posted."
+                                            } finally {
+                                                postingComment = false
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = commentText.isNotBlank() && !postingComment,
+                                colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Color(0xFF05201D)),
+                            ) {
+                                Text(if (postingComment) "Posting…" else "Post comment")
+                            }
+                        }
+
+                        if (!commentError.isNullOrBlank()) {
+                            Text(commentError!!, color = Color(0xFFFF9A9A), fontSize = 11.sp)
+                        }
+                        if (commentsLoading) {
+                            CircularProgressIndicator(color = Teal, modifier = Modifier.size(22.dp))
+                        } else if (comments.isEmpty()) {
+                            Text("No comments yet. Start the conversation.", color = Muted, fontSize = 11.sp)
+                        } else {
+                            comments.forEach { comment ->
+                                Row(
+                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).padding(11.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    AsyncImage(
+                                        model = comment.avatarUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(34.dp).clip(RoundedCornerShape(50)),
+                                    )
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(comment.displayName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        if (comment.spoiler && !revealedComments.contains(comment.id)) {
+                                            TextButton(onClick = {
+                                                revealedComments = revealedComments + comment.id
+                                            }) {
+                                                Text("Spoiler — tap to reveal", color = Color(0xFFFBBF24), fontSize = 10.sp)
+                                            }
+                                        } else {
+                                            Text(comment.content, color = Color(0xFFD1DCE0), fontSize = 12.sp, lineHeight = 17.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 item {
                     Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -932,5 +1132,51 @@ private fun ResolveOverlay(
             titleContentColor = Color.White,
             textContentColor = Muted,
         )
+    }
+}
+
+
+@Composable
+private fun AccountSettingsCard(
+    account: DiscordAccount?,
+    loading: Boolean,
+    error: String?,
+    onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(16.dp)).background(Panel).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Text("AnimeTeal account", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        if (account == null) {
+            Text("Sign in with Discord to use your AnimeTeal account and community features across devices.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+            Button(
+                onClick = onSignIn,
+                enabled = !loading,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5865F2), contentColor = Color.White),
+            ) {
+                Text(if (loading) "Connecting…" else "Continue with Discord")
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AsyncImage(
+                    model = account.avatarUrl,
+                    contentDescription = "Discord profile picture",
+                    modifier = Modifier.size(42.dp).clip(RoundedCornerShape(50)),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(account.displayName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (account.isAdmin) "AnimeTeal administrator" else "Connected with Discord", color = Muted, fontSize = 10.sp)
+                }
+                TextButton(onClick = onSignOut, enabled = !loading) {
+                    Text("Sign out", color = Teal)
+                }
+            }
+        }
+        if (!error.isNullOrBlank()) {
+            Text(error, color = Color(0xFFFF9A9A), fontSize = 11.sp)
+        }
     }
 }

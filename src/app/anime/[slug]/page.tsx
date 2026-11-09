@@ -10,6 +10,7 @@ import WatchButton from "@/components/watch-button";
 import { IAnime } from "@/types/anime";
 import AnimeCarousel from "@/components/anime-carousel";
 import AnimeEpisodes from "@/components/anime-episodes";
+import AnimeComments from "@/components/anime-comments";
 import CharacterCard from "@/components/common/character-card";
 import { ROUTES } from "@/constants/routes";
 import WatchTrailer from "@/components/watch-trailer";
@@ -295,6 +296,10 @@ const Page = () => {
             className="pt-10"
           />
         )}
+        <AnimeComments
+          animeId={String(anime.anime.info.id)}
+          animeTitle={anime.anime.info.name}
+        />
       </Container>
     </div>
   );
