@@ -22,7 +22,7 @@ export default function AnimeComments({
   animeId: string;
   animeTitle: string;
 }) {
-  const { user } = useAnimeTealSession();
+  const { user, loading: sessionLoading } = useAnimeTealSession();
   const [comments, setComments] = useState<AnimeComment[]>([]);
   const [content, setContent] = useState("");
   const [spoiler, setSpoiler] = useState(false);
@@ -93,7 +93,14 @@ export default function AnimeComments({
         </span>
       </div>
 
-      {user ? (
+      {sessionLoading ? (
+        <div
+          aria-live="polite"
+          className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-400"
+        >
+          Checking your AnimeTeal session…
+        </div>
+      ) : user ? (
         <form onSubmit={submitComment} className="space-y-3">
           <textarea
             value={content}

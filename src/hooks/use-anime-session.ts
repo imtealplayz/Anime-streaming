@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
+import { create } from "zustand";
 
 export type AnimeTealSessionUser = {
   discordId: string;
@@ -10,35 +11,62 @@ export type AnimeTealSessionUser = {
   isAdmin: boolean;
 };
 
-export function useAnimeTealSession() {
-  const [user, setUser] = useState<AnimeTealSessionUser | null>(null);
-  const [loading, setLoading] = useState(true);
+type AnimeTealSessionState = {
+  user: AnimeTealSessionUser | null;
+  loading: boolean;
+};
 
-  const refresh = useCallback(async () => {
+const useSessionStore = create<AnimeTealSessionState>(() => ({
+  user: null,
+  loading: true,
+}));
+
+// Account controls and comment forms share one session lookup and one state.
+// This prevents separate components from briefly disagreeing about login status.
+let refreshInFlight: Promise<void> | null = null;
+
+function refreshSession(force = false): Promise<void> {
+  if (refreshInFlight) return refreshInFlight;
+  if (!force && !useSessionStore.getState().loading) return Promise.resolve();
+
+  refreshInFlight = (async () => {
     try {
       const response = await fetch("/api/auth/me", {
         credentials: "same-origin",
         cache: "no-store",
       });
       const data = await response.json().catch(() => ({}));
-      setUser(response.ok ? data.user ?? null : null);
+      useSessionStore.setState({
+        user: response.ok ? data.user ?? null : null,
+      });
     } catch {
-      setUser(null);
+      useSessionStore.setState({ user: null });
     } finally {
-      setLoading(false);
+      useSessionStore.setState({ loading: false });
+      refreshInFlight = null;
     }
-  }, []);
+  })();
+
+  return refreshInFlight;
+}
+
+export function useAnimeTealSession() {
+  const user = useSessionStore((state) => state.user);
+  const loading = useSessionStore((state) => state.loading);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshSession();
+  }, []);
+
+  const refresh = useCallback(() => refreshSession(true), []);
 
   const signOut = useCallback(async () => {
+    if (refreshInFlight) await refreshInFlight;
     await fetch("/api/auth/logout", {
       method: "POST",
       credentials: "same-origin",
     }).catch(() => undefined);
-    setUser(null);
+    useSessionStore.setState({ user: null, loading: false });
   }, []);
 
   return { user, loading, refresh, signOut };
