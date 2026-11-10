@@ -48,6 +48,60 @@ function locationLabel(location?: AuditLog["location"]): string {
   return parts.length ? parts.join(", ") : "Location unavailable";
 }
 
+type ClientDetails = {
+  device: string;
+  operatingSystem: string;
+  browser: string;
+};
+
+function clientDetails(userAgent?: string): ClientDetails {
+  const ua = userAgent || "";
+  if (!ua) {
+    return {
+      device: "Not reported",
+      operatingSystem: "Not reported",
+      browser: "Not reported",
+    };
+  }
+
+  let device = "Desktop / unknown device";
+  let operatingSystem = "Unknown OS";
+  let browser = "Unknown browser";
+
+  const android = /Android\\s+([\\d.]+)(?:;\\s*([^;)]+))?/i.exec(ua);
+  if (android) {
+    const rawModel = (android[2] || "").replace(/\\s+Build\\/.+$/i, "").trim();
+    const genericModel = !rawModel || /^(k|wv|mobile|tablet|unknown|en[-_][a-z-]+)$/i.test(rawModel);
+    device = genericModel ? "Android device (model not reported)" : rawModel;
+    operatingSystem = "Android " + android[1];
+    if (/\\bMobile\\b/i.test(ua)) device += " · phone";
+    else if (/\\bTablet\\b/i.test(ua)) device += " · tablet";
+  } else if (/iPhone|iPad|iPod/i.test(ua)) {
+    const appleDevice = /iPad/i.test(ua) ? "iPad" : /iPod/i.test(ua) ? "iPod" : "iPhone";
+    device = appleDevice;
+    const ios = /OS ([\\d_]+)/i.exec(ua);
+    operatingSystem = (appleDevice === "iPad" ? "iPadOS " : "iOS ") + (ios ? ios[1].replace(/_/g, ".") : "version not reported");
+  } else if (/Windows NT ([\\d.]+)/i.test(ua)) {
+    operatingSystem = "Windows " + (/Windows NT 10/i.test(ua) ? "10/11" : /Windows NT 6\\.3/i.test(ua) ? "8.1" : /Windows NT 6\\.1/i.test(ua) ? "7" : RegExp.$1);
+  } else if (/Mac OS X ([\\d_]+)/i.test(ua)) {
+    const mac = /Mac OS X ([\\d_]+)/i.exec(ua);
+    operatingSystem = "macOS " + (mac ? mac[1].replace(/_/g, ".") : "version not reported");
+    device = "Mac";
+  } else if (/Linux/i.test(ua)) {
+    operatingSystem = "Linux";
+  }
+
+  if (/Edg\\//i.test(ua)) browser = "Microsoft Edge";
+  else if (/SamsungBrowser\\//i.test(ua)) browser = "Samsung Internet";
+  else if (/OPR\\//i.test(ua)) browser = "Opera";
+  else if (/Firefox\\//i.test(ua)) browser = "Firefox";
+  else if (/CriOS\\//i.test(ua)) browser = "Chrome (iOS)";
+  else if (/Chrome\\//i.test(ua)) browser = "Chrome";
+  else if (/Safari\\//i.test(ua)) browser = "Safari";
+
+  return { device, operatingSystem, browser };
+}
+
 export default async function SecurityLogsPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
@@ -140,12 +194,23 @@ export default async function SecurityLogsPage() {
                   </div>
 
                   {isLogin && (
-                    <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3 text-xs text-slate-300">
+                    <div className="space-y-2 rounded-xl border border-white/[0.06] bg-black/20 p-3 text-xs text-slate-300">
                       <p><span className="text-slate-500">Approx. location:</span> {location}</p>
+                      {(() => {
+                        const client = clientDetails(event.userAgent);
+                        return (
+                          <div className="grid gap-1 sm:grid-cols-3">
+                            <p><span className="text-slate-500">Device/model:</span> {client.device}</p>
+                            <p><span className="text-slate-500">Operating system:</span> {client.operatingSystem}</p>
+                            <p><span className="text-slate-500">Browser:</span> {client.browser}</p>
+                          </div>
+                        );
+                      })()}
                       {event.userAgent && (
-                        <p className="mt-1 break-words text-slate-500">
-                          <span className="text-slate-400">Browser/device:</span> {event.userAgent}
-                        </p>
+                        <details className="pt-1 text-slate-500">
+                          <summary className="cursor-pointer select-none">Raw user-agent details</summary>
+                          <p className="mt-2 break-all">{event.userAgent}</p>
+                        </details>
                       )}
                     </div>
                   )}
