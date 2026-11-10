@@ -68,36 +68,45 @@ function clientDetails(userAgent?: string): ClientDetails {
   let operatingSystem = "Unknown OS";
   let browser = "Unknown browser";
 
-  const android = /Android\\s+([\\d.]+)(?:;\\s*([^;)]+))?/i.exec(ua);
+  const android = /Android\s+([\d.]+)(?:;\s*([^;)]+))?/i.exec(ua);
   if (android) {
-    const rawModel = (android[2] || "").replace(/\\s+Build\\/.+$/i, "").trim();
+    const rawModel = (android[2] || "").replace(/\s+Build\/.+$/i, "").trim();
     const genericModel = !rawModel || /^(k|wv|mobile|tablet|unknown|en[-_][a-z-]+)$/i.test(rawModel);
     device = genericModel ? "Android device (model not reported)" : rawModel;
     operatingSystem = "Android " + android[1];
-    if (/\\bMobile\\b/i.test(ua)) device += " · phone";
-    else if (/\\bTablet\\b/i.test(ua)) device += " · tablet";
+    if (/\bMobile\b/i.test(ua)) device += " · phone";
+    else if (/\bTablet\b/i.test(ua)) device += " · tablet";
   } else if (/iPhone|iPad|iPod/i.test(ua)) {
     const appleDevice = /iPad/i.test(ua) ? "iPad" : /iPod/i.test(ua) ? "iPod" : "iPhone";
     device = appleDevice;
-    const ios = /OS ([\\d_]+)/i.exec(ua);
+    const ios = /OS ([\d_]+)/i.exec(ua);
     operatingSystem = (appleDevice === "iPad" ? "iPadOS " : "iOS ") + (ios ? ios[1].replace(/_/g, ".") : "version not reported");
-  } else if (/Windows NT ([\\d.]+)/i.test(ua)) {
-    operatingSystem = "Windows " + (/Windows NT 10/i.test(ua) ? "10/11" : /Windows NT 6\\.3/i.test(ua) ? "8.1" : /Windows NT 6\\.1/i.test(ua) ? "7" : RegExp.$1);
-  } else if (/Mac OS X ([\\d_]+)/i.test(ua)) {
-    const mac = /Mac OS X ([\\d_]+)/i.exec(ua);
-    operatingSystem = "macOS " + (mac ? mac[1].replace(/_/g, ".") : "version not reported");
-    device = "Mac";
-  } else if (/Linux/i.test(ua)) {
-    operatingSystem = "Linux";
+  } else {
+    const windows = /Windows NT ([\d.]+)/i.exec(ua);
+    const mac = /Mac OS X ([\d_]+)/i.exec(ua);
+    if (windows) {
+      const windowsVersion: Record<string, string> = {
+        "10.0": "10/11",
+        "6.3": "8.1",
+        "6.2": "8",
+        "6.1": "7",
+      };
+      operatingSystem = "Windows " + (windowsVersion[windows[1]] || windows[1]);
+    } else if (mac) {
+      operatingSystem = "macOS " + mac[1].replace(/_/g, ".");
+      device = "Mac";
+    } else if (/Linux/i.test(ua)) {
+      operatingSystem = "Linux";
+    }
   }
 
-  if (/Edg\\//i.test(ua)) browser = "Microsoft Edge";
-  else if (/SamsungBrowser\\//i.test(ua)) browser = "Samsung Internet";
-  else if (/OPR\\//i.test(ua)) browser = "Opera";
-  else if (/Firefox\\//i.test(ua)) browser = "Firefox";
-  else if (/CriOS\\//i.test(ua)) browser = "Chrome (iOS)";
-  else if (/Chrome\\//i.test(ua)) browser = "Chrome";
-  else if (/Safari\\//i.test(ua)) browser = "Safari";
+  if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
+  else if (/SamsungBrowser\//i.test(ua)) browser = "Samsung Internet";
+  else if (/OPR\//i.test(ua)) browser = "Opera";
+  else if (/Firefox\//i.test(ua)) browser = "Firefox";
+  else if (/CriOS\//i.test(ua)) browser = "Chrome (iOS)";
+  else if (/Chrome\//i.test(ua)) browser = "Chrome";
+  else if (/Safari\//i.test(ua)) browser = "Safari";
 
   return { device, operatingSystem, browser };
 }
