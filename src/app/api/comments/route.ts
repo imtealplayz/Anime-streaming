@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/animeteal-auth";
 import { getAnimeTealDb } from "@/lib/mongodb";
+import { recordAuditEvent } from "@/lib/audit-log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,6 +94,23 @@ export async function POST(request: NextRequest) {
       avatarUrl: user.avatarUrl,
       createdAt: now,
       updatedAt: now,
+    });
+
+    await recordAuditEvent(db, request, {
+      eventType: "comment.created",
+      actor: {
+        discordId: user.discordId,
+        username: user.username,
+        displayName: user.displayName,
+      },
+      platform: user.lastPlatform,
+      details: {
+        commentId: result.insertedId.toString(),
+        animeId,
+        animeTitle,
+        content,
+        spoiler,
+      },
     });
 
     return NextResponse.json(

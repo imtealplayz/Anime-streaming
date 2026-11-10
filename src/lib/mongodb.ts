@@ -44,6 +44,11 @@ export async function getAnimeTealDb(): Promise<Db> {
         db.collection("auth_tickets").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
         db.collection("comments").createIndex({ animeId: 1, createdAt: -1 }),
         db.collection("comments").createIndex({ userDiscordId: 1, createdAt: -1 }),
+        db.collection("audit_logs").createIndex({ createdAt: -1 }),
+        db.collection("audit_logs").createIndex(
+          { createdAt: 1 },
+          { expireAfterSeconds: 90 * 24 * 60 * 60 },
+        ),
       ]);
     })();
   }

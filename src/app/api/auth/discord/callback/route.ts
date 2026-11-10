@@ -11,6 +11,7 @@ import {
   siteUrl,
 } from "@/lib/animeteal-auth";
 import { getAnimeTealDb } from "@/lib/mongodb";
+import { recordAuditEvent } from "@/lib/audit-log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,6 +138,16 @@ export async function GET(request: NextRequest) {
 
     const user = await db.collection("users").findOne({ discordId: profile.id });
     if (!user) return loginError("Your AnimeTeal account could not be created.");
+
+    await recordAuditEvent(db, request, {
+      eventType: "auth.login",
+      actor: {
+        discordId: profile.id,
+        username: profile.username,
+        displayName: user.displayName || profile.global_name?.trim() || profile.username,
+      },
+      platform: stateRecord.platform === "android" ? "android" : "web",
+    });
 
     if (stateRecord.platform === "android") {
       const ticket = createOpaqueToken();

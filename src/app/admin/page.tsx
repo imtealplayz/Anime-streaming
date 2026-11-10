@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Activity, ArrowLeft, MessageSquare, Smartphone, Users } from "lucide-react";
+import { FileClock } from "lucide-react";
 
 type Stats = {
   registeredUsers: number;
@@ -61,6 +62,12 @@ export default function AdminPage() {
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-teal-300">AnimeTeal</p>
           <h1 className="mt-2 text-3xl font-black">Admin dashboard</h1>
           <p className="mt-2 text-sm text-slate-400">Registered Discord accounts and recent account activity.</p>
+          <Link
+            href="/logs"
+            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-teal-300/20 bg-teal-300/[0.07] px-4 py-2 text-sm font-semibold text-teal-200 transition hover:bg-teal-300/[0.12]"
+          >
+            <FileClock className="h-4 w-4" /> Open security logs
+          </Link>
         </div>
 
         {loading ? (
