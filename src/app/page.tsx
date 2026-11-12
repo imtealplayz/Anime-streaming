@@ -66,8 +66,6 @@ export default function Home() {
 
       <LatestEpisodesAnime loading={isLoadingRecent} />
 
-      <ContinueWatching loading={false} />
-
       <FeaturedCollection
         loading={isLoadingPopular || isLoadingRecent}
         featuredAnime={[
@@ -85,6 +83,8 @@ export default function Home() {
           },
         ]}
       />
+
+      <ContinueWatching loading={false} />
 
       <AnimeSections
         title="Trending Anime"

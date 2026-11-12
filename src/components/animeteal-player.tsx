@@ -21,6 +21,7 @@ import { useAuthStore } from "@/store/auth-store";
 import useBookMarks from "@/hooks/use-get-bookmark";
 import { pb } from "@/lib/pocketbase";
 import Image from "next/image";
+import { saveEpisodeThumbnail } from "@/lib/episode-thumbnails";
 
 const WATCH_PROGRESS_UPDATE_INTERVAL = 10000; // Update every 10 seconds
 const WATCH_PROGRESS_MIN_WATCH_TIME = 10; // Min seconds watched to create record
@@ -82,6 +83,7 @@ function AnimeTealPlayer({
   const initialSeekTimeRef = useRef<number | null>(null);
   const lastLocalWatchWriteRef = useRef<number>(0);
   const lastMediaSessionPositionUpdateRef = useRef<number>(0);
+  const lastThumbnailCaptureRef = useRef<{ key: string; time: number; savedAt: number }>({ key: "", time: -1, savedAt: 0 });
 
   const { auth } = useAuthStore();
   const { createOrUpdateBookMark, syncWatchProgress } = useBookMarks({
@@ -676,6 +678,43 @@ function AnimeTealPlayer({
       }
     };
 
+    // Capture the displayed frame as a local episode thumbnail. The image stays
+    // in this browser/device and is never uploaded to AnimeTeal servers.
+    const captureEpisodeThumbnail = (force = false) => {
+      const videoElement = video as HTMLVideoElement;
+      const episodeNumber = Number.parseInt(serversData.episodeNo, 10) || 1;
+      const currentTime = Number.isFinite(videoElement.currentTime)
+        ? videoElement.currentTime
+        : art.currentTime;
+      if (!animeInfo.id || currentTime < WATCH_PROGRESS_MIN_WATCH_TIME || videoElement.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !videoElement.videoWidth || !videoElement.videoHeight) return;
+
+      const key = animeInfo.id + ":" + episodeNumber;
+      const now = Date.now();
+      const lastCapture = lastThumbnailCaptureRef.current;
+      if (lastCapture.key === key && Math.abs(lastCapture.time - currentTime) < 1 && now - lastCapture.savedAt < 10000) return;
+      if (!force && lastCapture.key === key && now - lastCapture.savedAt < 60000) return;
+
+      const scale = Math.min(1, 640 / videoElement.videoWidth);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(videoElement.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(videoElement.videoHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      try {
+        context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      } catch {
+        // Some third-party streams do not permit canvas frame extraction.
+        return;
+      }
+
+      canvas.toBlob((blob) => {
+        if (!blob || blob.size === 0) return;
+        lastThumbnailCaptureRef.current = { key, time: currentTime, savedAt: Date.now() };
+        void saveEpisodeThumbnail(animeInfo.id, episodeNumber, blob, currentTime).catch((error) => {
+          console.warn("Could not save local episode thumbnail:", error);
+        });
+      }, "image/webp", 0.78);
+    };
     // --- Skip Logic Handler ---
     const handleTimeUpdate = () => {
       const art = artInstanceRef.current;
@@ -683,6 +722,7 @@ function AnimeTealPlayer({
 
       const currentTime = art.currentTime;
       const duration = art.duration;
+      captureEpisodeThumbnail();
       const {
         introStart,
         introEnd,
@@ -874,6 +914,8 @@ function AnimeTealPlayer({
     };
     art.on("video:pause", handleInteractionUpdate);
     art.on("video:seeked", handleInteractionUpdate);
+    const handleThumbnailPause = () => captureEpisodeThumbnail(true);
+    video.addEventListener("pause", handleThumbnailPause);
 
     // --- Callback for Parent ---
     if (getInstance && typeof getInstance === "function") {
@@ -889,6 +931,8 @@ function AnimeTealPlayer({
 
       const art = artInstanceRef.current; // Get instance ref
       const hls = hlsInstanceRef.current; // Get HLS ref
+
+      if (art && art.duration > 0) captureEpisodeThumbnail(true);
 
       if (hls) {
         console.log("Cleanup: Detaching HLS media");
@@ -937,6 +981,7 @@ function AnimeTealPlayer({
         video.removeEventListener("loadedmetadata", handleMediaSessionSeeked);
         video.removeEventListener("ratechange", handleMediaSessionSeeked);
         video.removeEventListener("ended", handleMediaSessionEnded);
+        video.removeEventListener("pause", handleThumbnailPause);
         if (mediaSession) {
           mediaSession.playbackState = "none";
           mediaSession.metadata = null;
