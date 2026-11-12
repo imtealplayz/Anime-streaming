@@ -512,13 +512,11 @@ fun NativePlayerScreen(
                 )
             }
 
-            AnimatedVisibility(
+            PlayerFadeVisibility(
                 visible = seekFeedback != null && !controlsLocked,
                 modifier = Modifier
                     .align(if (seekFeedbackDirection < 0) Alignment.CenterStart else Alignment.CenterEnd)
                     .padding(horizontal = 30.dp),
-                enter = fadeIn(tween(120)) + scaleIn(initialScale = 0.88f, animationSpec = tween(140)),
-                exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.92f, animationSpec = tween(180)),
             ) {
                 Surface(
                     color = Color(0xD90A151D),
@@ -542,11 +540,9 @@ fun NativePlayerScreen(
                 }
             }
 
-            AnimatedVisibility(
+            PlayerFadeVisibility(
                 visible = controlsLocked && unlockPromptVisible,
                 modifier = Modifier.align(Alignment.Center),
-                enter = fadeIn(tween(150)) + scaleIn(initialScale = 0.92f, animationSpec = tween(150)),
-                exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.96f, animationSpec = tween(180)),
             ) {
                 Surface(
                     onClick = {
@@ -571,11 +567,9 @@ fun NativePlayerScreen(
                 }
             }
 
-            AnimatedVisibility(
+            PlayerFadeVisibility(
                 visible = controlsVisible && !controlsLocked,
                 modifier = Modifier.fillMaxSize(),
-                enter = fadeIn(tween(180)) + slideInVertically(animationSpec = tween(180)) { it / 18 },
-                exit = fadeOut(tween(150)) + slideOutVertically(animationSpec = tween(150)) { it / 18 },
             ) {
                 Box(
                     Modifier.fillMaxSize().background(
@@ -862,6 +856,22 @@ private fun PlayerRoundAction(label: String, onClick: () -> Unit) {
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
         )
+    }
+}
+
+@Composable
+private fun PlayerFadeVisibility(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.97f, animationSpec = tween(160)),
+        exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.98f, animationSpec = tween(140)),
+    ) {
+        content()
     }
 }
 
