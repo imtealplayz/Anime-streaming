@@ -710,14 +710,19 @@ function AnimeTealPlayer({
         return;
       }
 
-      canvas.toBlob((blob) => {
+      try {
+        canvas.toBlob((blob) => {
+          thumbnailCapturePendingRef.current = Math.max(0, thumbnailCapturePendingRef.current - 1);
+          if (!blob || blob.size === 0) return;
+          lastThumbnailCaptureRef.current = { key, time: currentTime, savedAt: Date.now() };
+          void saveEpisodeThumbnail(animeInfo.id, episodeNumber, blob, currentTime).catch((error) => {
+            console.warn("Could not save local episode thumbnail:", error);
+          });
+        }, "image/webp", 0.78);
+      } catch {
         thumbnailCapturePendingRef.current = Math.max(0, thumbnailCapturePendingRef.current - 1);
-        if (!blob || blob.size === 0) return;
-        lastThumbnailCaptureRef.current = { key, time: currentTime, savedAt: Date.now() };
-        void saveEpisodeThumbnail(animeInfo.id, episodeNumber, blob, currentTime).catch((error) => {
-          console.warn("Could not save local episode thumbnail:", error);
-        });
-      }, "image/webp", 0.78);
+        // A tainted canvas can throw when the browser tries to encode it.
+      }
     };
     // --- Skip Logic Handler ---
     const handleTimeUpdate = () => {
