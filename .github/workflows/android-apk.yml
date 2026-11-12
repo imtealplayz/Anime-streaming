@@ -103,7 +103,11 @@ jobs:
           tag_name: android-latest
           name: AnimeTeal Android (Latest)
           body: |
-            AnimeTeal Android v2.2.5 (versionCode 9).
+            AnimeTeal Android v2.2.6 (versionCode 10).
+
+Moves Continue Watching to Home with a first-launch relocation tip, improves the native video player with smoother controls and repeatable double-tap seeking, and adds a separate Watch Later list alongside Favorites.
+
+Download AnimeTeal.apk and install it on your Android device. This release uses AnimeTeal's permanent Android signing key, so existing installations with the same package and signing certificate can upgrade directly.
 
             Adds Discord account sign-in on Android using a browser-based OAuth flow and one-time PKCE-protected app handoff. Adds shared anime comments with Discord display names and avatars. Sessions are stored encrypted on-device; the existing subtitle customization, player features, and signed update checker are retained.
 
