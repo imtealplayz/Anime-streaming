@@ -14,13 +14,23 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -85,6 +95,23 @@ private class LocalLibrary(context: Context) {
     }
 
     fun favorites(): List<AnimeItem> = readCards("favorites")
+
+    fun watchLater(): List<AnimeItem> = readCards("watch_later")
+
+    fun toggleWatchLater(item: AnimeItem): List<AnimeItem> {
+        val items = watchLater().toMutableList()
+        val index = items.indexOfFirst { it.id == item.id }
+        if (index >= 0) items.removeAt(index) else items.add(0, item)
+        saveCards("watch_later", items)
+        return items
+    }
+
+    fun shouldShowContinueMovedTip(): Boolean =
+        !prefs.getBoolean("continue_moved_tip_seen", false)
+
+    fun markContinueMovedTipSeen() {
+        prefs.edit().putBoolean("continue_moved_tip_seen", true).apply()
+    }
 
     fun toggleFavorite(item: AnimeItem): List<AnimeItem> {
         val items = favorites().toMutableList()
@@ -209,7 +236,9 @@ fun AnimeTealApp() {
     var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
 
     val favorites = remember { mutableStateListOf<AnimeItem>().apply { addAll(library.favorites()) } }
+    val watchLater = remember { mutableStateListOf<AnimeItem>().apply { addAll(library.watchLater()) } }
     val history = remember { mutableStateListOf<WatchEntry>().apply { addAll(library.history()) } }
+    var showContinueMovedTip by remember { mutableStateOf(library.shouldShowContinueMovedTip()) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -247,6 +276,17 @@ fun AnimeTealApp() {
         val updated = library.toggleFavorite(item)
         favorites.clear()
         favorites.addAll(updated)
+    }
+
+    fun toggleWatchLater(item: AnimeItem) {
+        val updated = library.toggleWatchLater(item)
+        watchLater.clear()
+        watchLater.addAll(updated)
+    }
+
+    fun dismissContinueMovedTip() {
+        library.markContinueMovedTipSeen()
+        showContinueMovedTip = false
     }
 
     fun startEpisode(
@@ -409,6 +449,7 @@ fun AnimeTealApp() {
                         api = api,
                         anime = selectedAnime!!,
                         isFavorite = favorites.any { it.id == selectedAnime!!.id },
+                        isWatchLater = watchLater.any { it.id == selectedAnime!!.id },
                         account = authAccount,
                         onLogin = {
                             try {
@@ -420,6 +461,7 @@ fun AnimeTealApp() {
                         },
                         onBack = { selectedAnime = null },
                         onFavorite = { toggleFavorite(selectedAnime!!) },
+                        onWatchLater = { toggleWatchLater(selectedAnime!!) },
                         onPlay = { episode, category -> startEpisode(selectedAnime!!, episode, category) },
                     )
                 }
@@ -461,13 +503,20 @@ fun AnimeTealApp() {
                     ) { padding ->
                         Box(Modifier.fillMaxSize().padding(padding)) {
                             when (tab) {
-                                MainTab.HOME -> HomeScreen(api, { selectedAnime = it }, { tab = MainTab.SEARCH })
+                                MainTab.HOME -> HomeScreen(
+                                    api = api,
+                                    history = history,
+                                    onAnimeClick = { selectedAnime = it },
+                                    onSearchClick = { tab = MainTab.SEARCH },
+                                    onResume = { startEpisode(it.anime, it.episode) },
+                                    showContinueMovedTip = showContinueMovedTip,
+                                    onDismissContinueMovedTip = ::dismissContinueMovedTip,
+                                )
                                 MainTab.SEARCH -> SearchScreen(api, { selectedAnime = it })
                                 MainTab.LIBRARY -> LibraryScreen(
                                     favorites = favorites,
-                                    history = history,
+                                    watchLater = watchLater,
                                     onAnimeClick = { selectedAnime = it },
-                                    onResume = { startEpisode(it.anime, it.episode) },
                                 )
                                 MainTab.SETTINGS -> Column(Modifier.fillMaxSize()) {
                                     AccountSettingsCard(
@@ -595,7 +644,15 @@ private fun AppHeader(
 }
 
 @Composable
-private fun HomeScreen(api: AnimeApi, onAnimeClick: (AnimeItem) -> Unit, onSearchClick: () -> Unit) {
+private fun HomeScreen(
+    api: AnimeApi,
+    history: List<WatchEntry>,
+    onAnimeClick: (AnimeItem) -> Unit,
+    onSearchClick: () -> Unit,
+    onResume: (WatchEntry) -> Unit,
+    showContinueMovedTip: Boolean,
+    onDismissContinueMovedTip: () -> Unit,
+) {
     var feed by remember(api) { mutableStateOf<HomeFeed?>(null) }
     var loading by remember(api) { mutableStateOf(true) }
     var error by remember(api) { mutableStateOf<String?>(null) }
@@ -621,23 +678,144 @@ private fun HomeScreen(api: AnimeApi, onAnimeClick: (AnimeItem) -> Unit, onSearc
                 Text("Search", color = Teal)
             }
         }
-        if (loading) {
-            LoadingHome()
-        } else if (feed == null) {
-            ErrorPanel(error ?: "No catalogue data was returned.") { refreshKey++ }
-        } else {
-            val data = feed!!
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp),
-            ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            item(key = "continue-watching") {
+                ContinueWatchingSection(history = history, onResume = onResume)
+            }
+            if (loading) {
+                item(key = "home-loading") { LoadingHome() }
+            } else if (feed == null) {
+                item(key = "home-error") { ErrorPanel(error ?: "No catalogue data was returned.") { refreshKey++ } }
+            } else {
+                val data = feed!!
                 if (data.spotlight.isNotEmpty()) item { SpotlightCard(data.spotlight.first(), onAnimeClick) }
                 if (data.trending.isNotEmpty()) item { AnimeRail("Trending now", data.trending, onAnimeClick) }
                 if (data.latest.isNotEmpty()) item { AnimeRail("Recently updated", data.latest, onAnimeClick) }
                 if (data.popular.isNotEmpty()) item { AnimeRail("Most popular", data.popular, onAnimeClick) }
                 if (data.spotlight.isEmpty() && data.trending.isEmpty() && data.latest.isEmpty()) {
                     item { ErrorPanel("The API connected, but its home response was empty.") { refreshKey++ } }
+                }
+            }
+        }
+    }
+
+    if (showContinueMovedTip) ContinueMovedOverlay(onDismiss = onDismissContinueMovedTip)
+}
+
+@Composable
+private fun ContinueWatchingSection(
+    history: List<WatchEntry>,
+    onResume: (WatchEntry) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Continue watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            if (history.isNotEmpty()) Text(history.size.toString() + " in progress", color = Muted, fontSize = 10.sp)
+        }
+        if (history.isEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                color = Panel,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0x334C626D)),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Teal, modifier = Modifier.size(25.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Your next episode starts here", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Anime you watch will appear in this section.", color = Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+        } else {
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                items(history, key = { "continue:" + it.anime.id }) { entry ->
+                    Surface(
+                        onClick = { onResume(entry) },
+                        modifier = Modifier.width(254.dp),
+                        color = Panel,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color(0x334C626D)),
+                    ) {
+                        Row(
+                            Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                        ) {
+                            AsyncImage(
+                                model = entry.anime.poster,
+                                contentDescription = entry.anime.name,
+                                modifier = Modifier.width(78.dp).height(106.dp).clip(RoundedCornerShape(10.dp)).background(Panel2),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text(entry.anime.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("Episode " + entry.episode.number, color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(entry.episode.title, color = Muted, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Teal, modifier = Modifier.size(16.dp))
+                                    Text("Resume", color = Teal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueMovedOverlay(onDismiss: () -> Unit) {
+    val glowTransition = rememberInfiniteTransition(label = "continue-moved-glow")
+    val glowAlpha by glowTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 900), repeatMode = RepeatMode.Reverse),
+        label = "continue-moved-glow-alpha",
+    )
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Panel,
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(2.dp, Teal.copy(alpha = glowAlpha)),
+            shadowElevation = 28.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(color = Teal.copy(alpha = 0.14f), shape = CircleShape) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Teal, modifier = Modifier.padding(13.dp).size(28.dp))
+                }
+                Text("Continue watching has been moved here", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black)
+                Text(
+                    "Your progress now lives on Home. Pick up right where you left off without opening your Library.",
+                    color = Muted,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal, contentColor = Color(0xFF05201D)),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Got it", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -791,10 +969,12 @@ private fun AnimeDetailScreen(
     api: AnimeApi,
     anime: AnimeItem,
     isFavorite: Boolean,
+    isWatchLater: Boolean,
     account: DiscordAccount?,
     onLogin: () -> Unit,
     onBack: () -> Unit,
     onFavorite: () -> Unit,
+    onWatchLater: () -> Unit,
     onPlay: (EpisodeItem, String) -> Unit,
 ) {
     var detail by remember(anime.id) { mutableStateOf<AnimeDetail?>(null) }
@@ -846,6 +1026,13 @@ private fun AnimeDetailScreen(
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("‹  Back", color = Teal) }
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = onWatchLater) {
+                Icon(
+                    if (isWatchLater) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                    contentDescription = "Toggle Watch Later",
+                    tint = if (isWatchLater) Teal else Color.White,
+                )
+            }
             IconButton(onClick = onFavorite) {
                 Icon(if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder, contentDescription = "Toggle favorite", tint = if (isFavorite) Teal else Color.White)
             }
@@ -1057,42 +1244,72 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
 @Composable
 private fun LibraryScreen(
     favorites: List<AnimeItem>,
-    history: List<WatchEntry>,
+    watchLater: List<AnimeItem>,
     onAnimeClick: (AnimeItem) -> Unit,
-    onResume: (WatchEntry) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        AppHeader(title = "Your library")
-        LazyColumn(contentPadding = PaddingValues(bottom = 22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        AppHeader(title = "Your playlists")
+        LazyColumn(
+            contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Continue watching", Modifier.padding(horizontal = 18.dp), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    if (history.isEmpty()) {
-                        Text("Your playback progress will appear here.", Modifier.padding(horizontal = 18.dp), color = Muted, fontSize = 12.sp)
-                    } else {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(history, key = { it.anime.id }) { entry ->
-                                Column(Modifier.width(140.dp).clickable { onResume(entry) }) {
-                                    AsyncImage(model = entry.anime.poster, contentDescription = entry.anime.name, modifier = Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(12.dp)).background(Panel2), contentScale = ContentScale.Crop)
-                                    Text(entry.anime.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("Episode ${entry.episode.number}", color = Muted, fontSize = 10.sp)
-                                }
-                            }
-                        }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Favorites", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Anime you've saved with the heart button", color = Muted, fontSize = 10.sp)
                     }
+                    Text(favorites.size.toString(), color = Teal, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (favorites.isEmpty()) {
+                item { PlaylistEmptyState("No favorites yet", "Open an anime and tap the heart to add it to Favorites.") }
+            } else {
+                items(favorites, key = { "favorite:" + it.id }) { item ->
+                    AnimeListRow(item, onClick = { onAnimeClick(item) })
                 }
             }
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Favorites", Modifier.padding(horizontal = 18.dp), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    if (favorites.isEmpty()) {
-                        Text("Save anime with the heart button to build your list.", Modifier.padding(horizontal = 18.dp), color = Muted, fontSize = 12.sp)
+                Spacer(Modifier.height(9.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 18.dp).background(Color(0x334C626D)))
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Watch Later", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Keep a list of anime to watch next", color = Muted, fontSize = 10.sp)
                     }
+                    Text(watchLater.size.toString(), color = Teal, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            items(favorites, key = { it.id }) { item ->
-                AnimeListRow(item, onClick = { onAnimeClick(item) })
+            if (watchLater.isEmpty()) {
+                item { PlaylistEmptyState("Your Watch Later list is empty", "Open an anime and tap the bookmark to save it for later.") }
+            } else {
+                items(watchLater, key = { "watch-later:" + it.id }) { item ->
+                    AnimeListRow(item, onClick = { onAnimeClick(item) })
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistEmptyState(title: String, message: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        color = Panel,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Color(0x334C626D)),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            Text(message, color = Muted, fontSize = 10.sp)
         }
     }
 }

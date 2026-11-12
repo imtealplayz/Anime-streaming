@@ -8,6 +8,14 @@ import android.content.pm.ActivityInfo
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -23,6 +31,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -30,7 +39,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -54,6 +78,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -212,8 +237,12 @@ fun NativePlayerScreen(
     var isBuffering by remember(stream.url, category) { mutableStateOf(true) }
     var controlsVisible by remember(stream.url, category) { mutableStateOf(true) }
     var controlsLocked by remember(stream.url, category) { mutableStateOf(false) }
+    var unlockPromptVisible by remember(stream.url, category) { mutableStateOf(false) }
     var interactionTick by remember(stream.url, category) { mutableIntStateOf(0) }
     var seekFeedback by remember(stream.url, category) { mutableStateOf<String?>(null) }
+    var seekFeedbackDirection by remember(stream.url, category) { mutableIntStateOf(1) }
+    var seekFeedbackSeconds by remember(stream.url, category) { mutableIntStateOf(10) }
+    var lastSeekFeedbackAt by remember(stream.url, category) { mutableLongStateOf(0L) }
     var speed by remember(stream.url, category) { mutableFloatStateOf(1f) }
     var volume by remember(stream.url, category) { mutableFloatStateOf(1f) }
     var repeatEnabled by remember(stream.url, category) { mutableStateOf(false) }
@@ -363,8 +392,15 @@ fun NativePlayerScreen(
 
     LaunchedEffect(seekFeedback) {
         if (seekFeedback != null) {
-            delay(850)
+            delay(800)
             seekFeedback = null
+        }
+    }
+
+    LaunchedEffect(controlsLocked, unlockPromptVisible, interactionTick) {
+        if (controlsLocked && unlockPromptVisible) {
+            delay(3_000)
+            unlockPromptVisible = false
         }
     }
 
@@ -380,20 +416,32 @@ fun NativePlayerScreen(
 
     val speedOptions = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
 
-    fun seekBy(deltaMs: Long) {
+    fun seekBy(deltaMs: Long, keepControlsHidden: Boolean = false) {
         val target = (player.currentPosition + deltaMs).coerceAtLeast(0L)
         val bounded = if (player.duration > 0L && player.duration != androidx.media3.common.C.TIME_UNSET) {
             target.coerceAtMost(player.duration)
         } else target
         player.seekTo(bounded)
         currentPosition = bounded
-        seekFeedback = if (deltaMs < 0) "−10 seconds" else "+10 seconds"
-        controlsVisible = true
+
+        val direction = if (deltaMs < 0L) -1 else 1
+        val now = System.currentTimeMillis()
+        seekFeedbackSeconds = if (
+            direction == seekFeedbackDirection && now - lastSeekFeedbackAt <= 1_100L
+        ) seekFeedbackSeconds + 10 else 10
+        seekFeedbackDirection = direction
+        lastSeekFeedbackAt = now
+        seekFeedback = (if (direction < 0) "−" else "+") + seekFeedbackSeconds + "s"
+
+        controlsVisible = !keepControlsHidden
         interactionTick++
     }
 
     val latestTap = rememberUpdatedState<() -> Unit> {
-        if (!controlsLocked) {
+        if (controlsLocked) {
+            unlockPromptVisible = true
+            interactionTick++
+        } else {
             controlsVisible = !controlsVisible
             interactionTick++
         }
@@ -401,8 +449,11 @@ fun NativePlayerScreen(
     var videoWidthPx by remember { mutableIntStateOf(0) }
     val latestVideoWidth = rememberUpdatedState(videoWidthPx)
     val latestDoubleTap = rememberUpdatedState<(Float, Float) -> Unit> { x, width ->
-        if (!controlsLocked) {
-            seekBy(if (x < width / 2f) -10_000L else 10_000L)
+        if (controlsLocked) {
+            unlockPromptVisible = true
+            interactionTick++
+        } else {
+            seekBy(if (x < width / 2f) -10_000L else 10_000L, keepControlsHidden = true)
         }
     }
     val gestureDetector = remember(context) {
@@ -461,45 +512,75 @@ fun NativePlayerScreen(
                 )
             }
 
-            if (seekFeedback != null) {
+            AnimatedVisibility(
+                visible = seekFeedback != null && !controlsLocked,
+                modifier = Modifier
+                    .align(if (seekFeedbackDirection < 0) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 30.dp),
+                enter = fadeIn(tween(120)) + scaleIn(initialScale = 0.88f, animationSpec = tween(140)),
+                exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.92f, animationSpec = tween(180)),
+            ) {
                 Surface(
-                    modifier = Modifier.align(Alignment.Center),
-                    color = Color(0xCC081118),
-                    shape = RoundedCornerShape(30.dp),
+                    color = Color(0xD90A151D),
+                    shape = RoundedCornerShape(20.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x9952DCCB)),
+                    shadowElevation = 12.dp,
                 ) {
-                    Text(
-                        seekFeedback!!,
-                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                    )
+                    Row(
+                        Modifier.padding(horizontal = 17.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            if (seekFeedbackDirection < 0) Icons.Filled.Replay10 else Icons.Filled.Forward10,
+                            contentDescription = null,
+                            tint = NativePlayerTeal,
+                            modifier = Modifier.size(31.dp),
+                        )
+                        Text(seekFeedback ?: "", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
                 }
             }
 
-            if (controlsLocked) {
+            AnimatedVisibility(
+                visible = controlsLocked && unlockPromptVisible,
+                modifier = Modifier.align(Alignment.Center),
+                enter = fadeIn(tween(150)) + scaleIn(initialScale = 0.92f, animationSpec = tween(150)),
+                exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.96f, animationSpec = tween(180)),
+            ) {
                 Surface(
-                    modifier = Modifier.align(Alignment.Center),
-                    color = NativePlayerPanel,
-                    shape = CircleShape,
-                ) {
-                    TextButton(onClick = {
+                    onClick = {
                         controlsLocked = false
+                        unlockPromptVisible = false
                         controlsVisible = true
                         interactionTick++
-                    }) {
-                        Text("UNLOCK CONTROLS", color = NativePlayerTeal, fontWeight = FontWeight.Bold)
+                    },
+                    color = NativePlayerPanel,
+                    shape = RoundedCornerShape(24.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x9952DCCB)),
+                    shadowElevation = 16.dp,
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Filled.LockOpen, contentDescription = null, tint = NativePlayerTeal)
+                        Text("Unlock controls", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
-            } else if (controlsVisible) {
+            }
+
+            AnimatedVisibility(
+                visible = controlsVisible && !controlsLocked,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(180)) + slideInVertically(animationSpec = tween(180)) { it / 18 },
+                exit = fadeOut(tween(150)) + slideOutVertically(animationSpec = tween(150)) { it / 18 },
+            ) {
                 Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0xC9000000), Color.Transparent, Color.Transparent, Color(0xE8000000))
-                            )
-                        )
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color(0xB8000000), Color.Transparent, Color.Transparent, Color(0xE9000000)))
+                    )
                 ) {
                     Column(Modifier.fillMaxWidth().align(Alignment.TopCenter)) {
                         Row(
@@ -507,20 +588,11 @@ fun NativePlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            TextButton(onClick = latestOnBack) {
-                                Text("‹ Back", color = Color.White, fontSize = 13.sp)
-                            }
+                            PlayerIconButton(Icons.Filled.ArrowBack, "Back", latestOnBack)
                             Column(Modifier.weight(1f)) {
+                                Text(anime.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(
-                                    anime.name,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    "Episode ${episode.number} · ${episode.title}",
+                                    "Episode " + episode.number + " · " + episode.title,
                                     color = NativePlayerMuted,
                                     fontSize = 10.sp,
                                     maxLines = 1,
@@ -533,11 +605,13 @@ fun NativePlayerScreen(
                             PlayerAction("DUB", category == "dub") {
                                 if (category != "dub") latestOnChangeLanguage("dub", player.currentPosition)
                             }
-                            PlayerAction(if (isFullscreen) "Window" else "Full") {
-                                isFullscreen = !isFullscreen
-                            }
-                            PlayerAction("Lock") {
+                            PlayerIconButton(
+                                if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                                if (isFullscreen) "Exit fullscreen" else "Enter fullscreen",
+                            ) { isFullscreen = !isFullscreen }
+                            PlayerIconButton(Icons.Filled.Lock, "Lock controls") {
                                 controlsLocked = true
+                                unlockPromptVisible = true
                                 controlsVisible = false
                             }
                         }
@@ -546,34 +620,36 @@ fun NativePlayerScreen(
                     Row(
                         Modifier.align(Alignment.Center),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(22.dp),
+                        horizontalArrangement = Arrangement.spacedBy(30.dp),
                     ) {
-                        PlayerRoundAction("−10") { seekBy(-10_000L) }
+                        PlayerSeekButton(Icons.Filled.Replay10, "Rewind 10 seconds") { seekBy(-10_000L) }
                         Surface(
                             onClick = {
                                 if (player.isPlaying) player.pause() else player.play()
                                 controlsVisible = true
                                 interactionTick++
                             },
-                            color = Color(0xB90B171F),
+                            modifier = Modifier.size(72.dp),
+                            color = Color(0xD90B171F),
                             shape = CircleShape,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x9952DCCB)),
+                            shadowElevation = 12.dp,
                         ) {
-                            androidx.compose.material3.Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                modifier = Modifier.padding(13.dp).size(34.dp),
-                                tint = Color.White,
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    modifier = Modifier.size(37.dp),
+                                    tint = Color.White,
+                                )
+                            }
                         }
-                        PlayerRoundAction("+10") { seekBy(10_000L) }
+                        PlayerSeekButton(Icons.Filled.Forward10, "Forward 10 seconds") { seekBy(10_000L) }
                     }
 
                     Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(horizontal = 16.dp, vertical = 11.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                        Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(formatPlayerTime(currentPosition), color = Color.White, fontSize = 11.sp)
@@ -597,15 +673,15 @@ fun NativePlayerScreen(
                         Row(
                             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            PlayerAction("${speed}x") { dialog = "speed" }
-                            PlayerAction("Audio") { dialog = "audio" }
-                            PlayerAction("Subtitles") { dialog = "subtitles" }
-                            PlayerAction("Style") { dialog = "subtitle-style" }
-                            PlayerAction("Quality") { dialog = "quality" }
-                            PlayerAction("Volume") { dialog = "volume" }
-                            PlayerAction(if (repeatEnabled) "Repeat on" else "Repeat off", repeatEnabled) {
+                            PlayerIconLabelAction(Icons.Filled.Speed, speed.toString() + "x") { dialog = "speed" }
+                            PlayerIconLabelAction(Icons.Filled.Audiotrack, "Audio") { dialog = "audio" }
+                            PlayerIconLabelAction(Icons.Filled.ClosedCaption, "Subtitles") { dialog = "subtitles" }
+                            PlayerIconLabelAction(Icons.Filled.Tune, "Subtitle style") { dialog = "subtitle-style" }
+                            PlayerIconLabelAction(Icons.Filled.Settings, "Quality") { dialog = "quality" }
+                            PlayerIconLabelAction(Icons.Filled.VolumeUp, "Volume") { dialog = "volume" }
+                            PlayerIconLabelAction(Icons.Filled.Repeat, "Repeat", selected = repeatEnabled) {
                                 repeatEnabled = !repeatEnabled
                                 player.repeatMode = if (repeatEnabled) {
                                     androidx.media3.common.Player.REPEAT_MODE_ONE
@@ -615,55 +691,23 @@ fun NativePlayerScreen(
                             }
                         }
                         if (playerError != null) {
-                            Surface(
-                                color = Color(0xE6201115),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        playerError!!,
-                                        Modifier.weight(1f),
-                                        color = Color(0xFFFFC0C0),
-                                        fontSize = 11.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    TextButton(onClick = { latestOnRetry(player.currentPosition) }) {
-                                        Text("Retry", color = NativePlayerTeal)
-                                    }
+                            Surface(color = Color(0xE6201115), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(playerError!!, Modifier.weight(1f), color = Color(0xFFFFC0C0), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    TextButton(onClick = { latestOnRetry(player.currentPosition) }) { Text("Retry", color = NativePlayerTeal) }
                                 }
                             }
                         }
                         if (resolveError != null) {
-                            Surface(
-                                color = Color(0xE62B1B16),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        resolveError,
-                                        Modifier.weight(1f),
-                                        color = Color(0xFFFFD4BA),
-                                        fontSize = 11.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    TextButton(onClick = onDismissResolveError) {
-                                        Text("Dismiss", color = NativePlayerTeal)
-                                    }
+                            Surface(color = Color(0xE62B1B16), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(resolveError, Modifier.weight(1f), color = Color(0xFFFFD4BA), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    TextButton(onClick = onDismissResolveError) { Text("Dismiss", color = NativePlayerTeal) }
                                 }
                             }
                         }
                         if (isResolvingLanguage) {
-                            Text("Loading ${if (category == "sub") "SUB" else "DUB"} source…", color = NativePlayerTeal, fontSize = 11.sp)
+                            Text("Loading " + (if (category == "sub") "SUB" else "DUB") + " source…", color = NativePlayerTeal, fontSize = 11.sp)
                         }
                     }
                 }
@@ -818,6 +862,61 @@ private fun PlayerRoundAction(label: String, onClick: () -> Unit) {
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
         )
+    }
+}
+
+@Composable
+private fun PlayerIconButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(39.dp),
+        color = Color(0xB90D1821),
+        shape = CircleShape,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x664C626D)),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(19.dp))
+        }
+    }
+}
+
+@Composable
+private fun PlayerSeekButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(62.dp),
+        color = Color(0xB90B171F),
+        shape = CircleShape,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x664C626D)),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(28.dp))
+            Text("10s", color = NativePlayerMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun PlayerIconLabelAction(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) Color(0xFF173B39) else Color(0xB90D1821),
+        shape = RoundedCornerShape(13.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) NativePlayerTeal else Color(0x664C626D)),
+    ) {
+        Column(
+            modifier = Modifier.widthIn(min = 64.dp).height(56.dp).padding(horizontal = 9.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = label, tint = if (selected) NativePlayerTeal else Color.White, modifier = Modifier.size(19.dp))
+            Text(label, color = if (selected) NativePlayerTeal else NativePlayerMuted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
     }
 }
 
