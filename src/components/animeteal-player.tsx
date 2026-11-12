@@ -84,6 +84,7 @@ function AnimeTealPlayer({
   const lastLocalWatchWriteRef = useRef<number>(0);
   const lastMediaSessionPositionUpdateRef = useRef<number>(0);
   const lastThumbnailCaptureRef = useRef<{ key: string; time: number; savedAt: number }>({ key: "", time: -1, savedAt: 0 });
+  const thumbnailCapturePendingRef = useRef<number>(0);
 
   const { auth } = useAuthStore();
   const { createOrUpdateBookMark, syncWatchProgress } = useBookMarks({
@@ -699,15 +700,18 @@ function AnimeTealPlayer({
       canvas.width = Math.max(1, Math.round(videoElement.videoWidth * scale));
       canvas.height = Math.max(1, Math.round(videoElement.videoHeight * scale));
       const context = canvas.getContext("2d");
-      if (!context) return;
+      if (!context || (thumbnailCapturePendingRef.current > 0 && !force)) return;
+      thumbnailCapturePendingRef.current += 1;
       try {
         context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
       } catch {
+        thumbnailCapturePendingRef.current = Math.max(0, thumbnailCapturePendingRef.current - 1);
         // Some third-party streams do not permit canvas frame extraction.
         return;
       }
 
       canvas.toBlob((blob) => {
+        thumbnailCapturePendingRef.current = Math.max(0, thumbnailCapturePendingRef.current - 1);
         if (!blob || blob.size === 0) return;
         lastThumbnailCaptureRef.current = { key, time: currentTime, savedAt: Date.now() };
         void saveEpisodeThumbnail(animeInfo.id, episodeNumber, blob, currentTime).catch((error) => {
