@@ -5,7 +5,6 @@ export interface IEpisodes {
 
 export interface Episode {
   title: string;
-  image?: string;
   episodeId: string;
   number: number;
   isFiller: boolean;

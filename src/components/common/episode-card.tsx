@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -8,12 +8,11 @@ import { ROUTES } from "@/constants/routes";
 import { Episode } from "@/types/episodes";
 import { useAnimeStore } from "@/store/anime-store";
 import { useHasAnimeWatched } from "@/hooks/use-is-anime-watched";
-import { Captions, Mic, Play } from "lucide-react";
+import { Captions, Mic } from "lucide-react";
 import Link from "next/link";
 import { WatchHistory } from "@/hooks/use-get-bookmark";
 
 import { useSearchParams } from "next/navigation";
-import { EPISODE_THUMBNAIL_UPDATED_EVENT, getEpisodeThumbnail, getEpisodeThumbnailKey } from "@/lib/episode-thumbnails";
 
 type Props = {
   className?: string;
@@ -24,38 +23,6 @@ type Props = {
   subOrDub?: { sub: number; dub: number };
   watchedEpisodes?: WatchHistory[] | null;
 };
-
-const EpisodeThumbnail = ({
-  src,
-  label,
-  className,
-}: {
-  src?: string | null;
-  label: string;
-  className?: string;
-}) => (
-  <div className={cn("group relative aspect-video overflow-hidden rounded-xl border border-white/10 bg-slate-900", className)}>
-    {src ? (
-      <div
-        role="img"
-        aria-label={label + " thumbnail"}
-        className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
-        style={{ backgroundImage: "url(" + JSON.stringify(src) + ")" }}
-      />
-    ) : (
-      <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(ellipse_at_50%_40%,rgba(45,212,191,0.18),transparent_65%),linear-gradient(135deg,#172330,#080d13)]">
-        <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">Episode preview</span>
-      </div>
-    )}
-    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-black/10 transition-colors group-hover:from-black/80 group-hover:via-black/20" />
-    <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
-      <span className="flex h-11 w-11 scale-90 items-center justify-center rounded-full bg-teal-300 text-slate-950 shadow-xl shadow-black/40 transition-transform duration-200 group-hover:scale-100">
-        <Play className="ml-0.5 h-4 w-4 fill-current" />
-      </span>
-    </div>
-    <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[10px] font-bold text-white backdrop-blur-sm">{label}</span>
-  </div>
-);
 
 const EpisodeCard = ({
   showCard = false,
@@ -79,112 +46,72 @@ const EpisodeCard = ({
       : selectedEpisode === props.episode.episodeId ||
         (!!selectedEpisode && selectedEpisode.endsWith(`/${props.episode.number}`));
 
-
-  const episodeNumber = props.episode.number;
-  const thumbnailKey = getEpisodeThumbnailKey(props.animeId, episodeNumber);
-  const [savedThumbnail, setSavedThumbnail] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-
-    const loadThumbnail = async () => {
-      try {
-        const blob = await getEpisodeThumbnail(props.animeId, episodeNumber);
-        if (!active) return;
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
-        objectUrl = blob ? URL.createObjectURL(blob) : null;
-        setSavedThumbnail(objectUrl);
-      } catch {
-        if (active) setSavedThumbnail(null);
-      }
-    };
-
-    const handleThumbnailUpdate = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === thumbnailKey) void loadThumbnail();
-    };
-
-    void loadThumbnail();
-    window.addEventListener(EPISODE_THUMBNAIL_UPDATED_EVENT, handleThumbnailUpdate);
-
-    return () => {
-      active = false;
-      window.removeEventListener(EPISODE_THUMBNAIL_UPDATED_EVENT, handleThumbnailUpdate);
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [episodeNumber, props.animeId, thumbnailKey]);
-
-  const thumbnail = savedThumbnail || props.episode.image || null;
-  const watchHref = ROUTES.WATCH + "?anime=" + props.animeId + "&ep=" + episodeNumber;
-  const title = props.episode.title && props.episode.title !== "Episode " + episodeNumber
-    ? props.episode.title
-    : "Episode " + episodeNumber;
-
   if (showCard && variant === "card") {
     return (
-      <div className={cn("w-full max-w-[12.5rem] cursor-pointer overflow-hidden", props.className)}>
-        <EpisodeThumbnail src={thumbnail} label={"EP " + episodeNumber} />
-        <h5 className="mt-2 line-clamp-1 text-xs font-semibold text-white">
-          {episodeNumber}. {title}
-        </h5>
+      <div
+        className={cn([
+          "rounded-xl overflow-hidden relative cursor-pointer ",
+          "h-[8.625rem] min-w-[8.625rem] max-w-[10.625rem] md:h-[10.75rem] md:max-w-[12.5rem]",
+          props.className,
+        ])}
+      >
+        <div className="absolute inset-0 m-auto h-full w-full bg-gradient-to-t from-[#000000a9] to-transparent"></div>
+        <div className="absolute bottom-0 flex flex-col gap-1 px-4 pb-3">
+          <h5 className="line-clamp-1">{props.episode.number}. {props.episode.title}</h5>
+        </div>
       </div>
     );
-  }
-
-  if (variant === "card") {
+  } else if (!showCard && variant === "card") {
     return (
-      <Link href={watchHref} aria-label={"Play episode " + episodeNumber + ": " + title} className="group block w-full">
-        <EpisodeThumbnail
-          src={thumbnail}
-          label={"EP " + episodeNumber}
-          className={cn(
-            "transition-colors group-hover:border-teal-300/60",
-            isSelected && "border-teal-300/80 ring-1 ring-teal-300/30",
-            props.className,
-          )}
-        />
-        <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
-          <h5 className="line-clamp-1 min-w-0 text-xs font-semibold text-slate-200 transition-colors group-hover:text-white sm:text-sm">
-            {title}
-          </h5>
-          {hasWatchedEpisode && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teal-300" title="Watched" />}
+      <Link
+        href={`${ROUTES.WATCH}?anime=${props.animeId}&ep=${props.episode.number}`}
+      >
+        <div
+          className={cn([
+            "h-[5.25rem] rounded-xl cursor-pointer w-full flex items-center justify-center bg-slate-900/60 border border-white/5 md:text-base text-xs font-semibold transition-all hover:border-cyan-500/30",
+            isSelected && "bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold shadow-md shadow-cyan-500/25 border-cyan-400/50",
+            !isSelected && hasWatchedEpisode && "bg-slate-950/80 text-gray-500 border-white/5",
+          ])}
+        >
+          {`Episode ${props.episode.number}`}
+        </div>
+      </Link>
+    );
+  } else {
+    return (
+      <Link
+        href={`${ROUTES.WATCH}?anime=${props.animeId}&ep=${props.episode.number}`}
+      >
+        <div
+          className={cn([
+            "flex gap-3 items-center justify-between w-full h-fit rounded-xl p-3 transition-all cursor-pointer text-xs md:text-sm font-medium border border-transparent",
+            isSelected
+              ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold shadow-md shadow-cyan-500/25 border-cyan-400/40"
+              : hasWatchedEpisode
+                ? "bg-slate-950/60 text-gray-400 hover:bg-slate-900 border-white/5"
+                : "bg-slate-900/50 text-gray-300 hover:bg-slate-800/80 hover:text-white border-white/5 hover:border-cyan-500/20",
+          ])}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="shrink-0">{`Episode ${props.episode.number}`}</span>
+            {props.episode.title && props.episode.title !== `Episode ${props.episode.number}` && (
+              <span className="text-xs opacity-75 line-clamp-1 font-normal">
+                - {props.episode.title}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {(props.episode.hasSub ?? (props.subOrDub && props.episode.number <= props.subOrDub.sub)) && (
+              <Captions className={`h-4 w-4 ${isSelected ? "text-white" : "text-gray-400"}`} />
+            )}
+            {(props.episode.hasDub ?? (props.subOrDub && props.episode.number <= props.subOrDub.dub)) && (
+              <Mic className={`h-4 w-4 ${isSelected ? "text-white" : "text-gray-400"}`} />
+            )}
+          </div>
         </div>
       </Link>
     );
   }
-
-  return (
-    <Link
-      href={watchHref}
-      aria-label={"Play episode " + episodeNumber + ": " + title}
-      className={cn(
-        "group flex w-full items-center gap-3 rounded-xl border p-2 transition-all",
-        isSelected
-          ? "border-teal-400/40 bg-teal-500/10"
-          : hasWatchedEpisode
-            ? "border-white/5 bg-slate-950/60 hover:bg-slate-900"
-            : "border-white/5 bg-slate-900/50 hover:border-teal-500/25 hover:bg-slate-800/80",
-      )}
-    >
-      <EpisodeThumbnail src={thumbnail} label={"EP " + episodeNumber} className="w-28 shrink-0 rounded-lg sm:w-36" />
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className={cn("truncate text-xs font-semibold sm:text-sm", isSelected ? "text-teal-200" : "text-slate-200 group-hover:text-white")}>
-            {title}
-          </p>
-          <p className="mt-1 text-[10px] text-slate-500">Episode {episodeNumber}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {(props.episode.hasSub ?? (props.subOrDub && episodeNumber <= props.subOrDub.sub)) && (
-            <Captions className={cn("h-4 w-4", isSelected ? "text-teal-200" : "text-gray-400")} />
-          )}
-          {(props.episode.hasDub ?? (props.subOrDub && episodeNumber <= props.subOrDub.dub)) && (
-            <Mic className={cn("h-4 w-4", isSelected ? "text-teal-200" : "text-gray-400")} />
-          )}
-        </div>
-      </div>
-    </Link>
-  );
 };
 
 export default EpisodeCard;

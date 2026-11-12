@@ -125,7 +125,6 @@ const getAllEpisodes = async (animeId: string): Promise<IEpisodesData> => {
 
       return {
         title: epDetail?.title || `Episode ${epNum}`,
-        image: typeof epDetail?.image === "string" ? epDetail.image : undefined,
         episodeId: fallbackId || `${epNum}`,
         number: epNum,
         isFiller: !!epDetail?.filler,
