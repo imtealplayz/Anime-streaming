@@ -103,17 +103,16 @@ export async function GET(request: NextRequest) {
         throw new Error("Expected the Aniraku server list to be an array.");
       }
       const normalizedPayload = normalizeAnirakuServers(payload);
+      return NextResponse.json(normalizedPayload, {
+        status: 200,
+        headers: { "Cache-Control": "no-store" },
+      });
     } catch {
       return NextResponse.json(
         { error: "Aniraku returned malformed server-list JSON." },
         { status: 502, headers: { "Cache-Control": "no-store" } },
       );
     }
-
-    return NextResponse.json(normalizedPayload, {
-      status: 200,
-      headers: { "Cache-Control": "no-store" },
-    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upstream stream discovery failed.";
     return NextResponse.json(
