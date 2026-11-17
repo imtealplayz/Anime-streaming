@@ -9,14 +9,14 @@ export const revalidate = 0;
 // Version 6+ verifies signedPayload and opens websiteUrl instead.
 const update = {
   protocolVersion: 1,
-  latestVersionCode: 10,
-  latestVersionName: "2.2.6",
+  latestVersionCode: 11,
+  latestVersionName: "2.2.7",
   minimumSupportedVersionCode: 5,
   downloadUrl:
     "https://github.com/imtealplayz/Anime-streaming/releases/download/android-latest/AnimeTeal.apk",
   websiteUrl: "https://animeteal.vercel.app/download",
   releaseNotes:
-    "AnimeTeal 2.2.6 moves Continue Watching to Home, improves the native video player with smoother controls and repeated double-tap seeking, and adds a separate Watch Later list alongside Favorites.",
+    "AnimeTeal 2.2.7 fixes playback compatibility with Aniraku's opaque tokenized media and subtitle proxy links. Includes the Home, player controls, Favorites and Watch Later improvements from 2.2.6.",
 };
 
 export async function GET() {

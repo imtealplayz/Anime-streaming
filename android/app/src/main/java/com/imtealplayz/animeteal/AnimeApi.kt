@@ -271,8 +271,19 @@ class AnimeApi {
         return best
     }
 
+    // Aniraku now returns opaque proxy links in relative form
+    // (/api/v1/proxy?k=...). Media3 requires an absolute URL.
+    private fun absoluteAnirakuMediaUrl(rawUrl: String): String {
+        val value = rawUrl.trim()
+        return when {
+            value.startsWith("/api/v1/") -> base.trimEnd('/') + value
+            value.startsWith("api/v1/") -> base.trimEnd('/') + "/" + value
+            else -> value
+        }
+    }
+
     private fun subtitleProxyUrl(rawUrl: String, headers: Map<String, String>): String {
-        val source = rawUrl.trim()
+        val source = absoluteAnirakuMediaUrl(rawUrl)
         if (source.isBlank()) return source
         if (source.contains("/api/v1/proxy?")) return source
 
@@ -468,7 +479,7 @@ class AnimeApi {
                 val playableSources = buildList {
                     for (sourceIndex in 0 until sourceArray.length()) {
                         val source = sourceArray.optJSONObject(sourceIndex) ?: continue
-                        val sourceUrl = text(source, "url")
+                        val sourceUrl = absoluteAnirakuMediaUrl(text(source, "url"))
                         val sourceType = text(source, "type", "mime").lowercase()
                         val verdict = text(source, "verification", "Verification").lowercase()
                         val isNative = sourceType.contains("hls") || sourceType.contains("mpegurl") ||
@@ -559,7 +570,7 @@ class AnimeApi {
                 }
             }
         }
-        val streamUrl = text(chosen, "url")
+        val streamUrl = absoluteAnirakuMediaUrl(text(chosen, "url"))
         return StreamSource(
             streamUrl,
             text(chosen, "quality").ifBlank { "Auto" },

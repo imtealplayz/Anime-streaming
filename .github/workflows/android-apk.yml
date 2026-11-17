@@ -103,9 +103,9 @@ jobs:
           tag_name: android-latest
           name: AnimeTeal Android (Latest)
           body: |
-            AnimeTeal Android v2.2.6 (versionCode 10).
+            AnimeTeal Android v2.2.7 (versionCode 11).
 
-            Moves Continue Watching to Home with a first-launch relocation tip, improves the native video player with smoother controls and repeatable double-tap seeking, and adds a separate Watch Later list alongside Favorites.
+            Fixes playback compatibility with Aniraku's opaque tokenized media and subtitle proxy links. Includes the Home, player controls, Favorites and Watch Later improvements from v2.2.6.
 
             Download AnimeTeal.apk and install it on your Android device. This release uses AnimeTeal's permanent Android signing key, so existing installations with the same package and signing certificate can upgrade directly.
           target_commitish: main
