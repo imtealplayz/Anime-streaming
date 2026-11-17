@@ -26,6 +26,29 @@ import { saveEpisodeThumbnail } from "@/lib/episode-thumbnails";
 const WATCH_PROGRESS_UPDATE_INTERVAL = 10000; // Update every 10 seconds
 const WATCH_PROGRESS_MIN_WATCH_TIME = 10; // Min seconds watched to create record
 
+const ANIRAKU_API_BASE_URL = "https://api.aniraku.tech";
+
+function normalizeAnirakuProxyUrl(value: string): string | null {
+  try {
+    const url = new URL(value, ANIRAKU_API_BASE_URL);
+    const hostname = url.hostname.toLowerCase();
+    const isAnirakuHost =
+      hostname === "aniraku.tech" || hostname.endsWith(".aniraku.tech");
+
+    if (
+      url.protocol === "https:" &&
+      isAnirakuHost &&
+      url.pathname === "/api/v1/proxy"
+    ) {
+      return url.toString();
+    }
+  } catch {
+    // Leave non-URL provider links to the legacy proxy path.
+  }
+
+  return null;
+}
+
 // --- Define Props for the Combined Player ---
 interface ArtPlayerProps extends HTMLAttributes<HTMLDivElement> {
   episodeInfo: IEpisodeSource; // Source info including URLs, tracks, intro/outro
@@ -100,19 +123,10 @@ function AnimeTealPlayer({
     const firstSourceUrl = episodeInfo?.sources?.[0]?.url;
     if (!firstSourceUrl) return null;
 
-    // Aniraku HLS sources are already served through its CORS-enabled media
-    // proxy. Do not wrap them in AnimeTeal's legacy proxy a second time.
-    try {
-      const sourceUrl = new URL(firstSourceUrl);
-      if (
-        sourceUrl.origin === "https://api.aniraku.tech" &&
-        sourceUrl.pathname === "/api/v1/proxy"
-      ) {
-        return firstSourceUrl;
-      }
-    } catch {
-      // Continue through the legacy proxy for malformed or relative URLs.
-    }
+    // Aniraku now returns opaque /api/v1/proxy?k=… links, sometimes
+    // relative. Root them at its API host and never wrap them a second time.
+    const anirakuProxyUrl = normalizeAnirakuProxyUrl(firstSourceUrl);
+    if (anirakuProxyUrl) return anirakuProxyUrl;
 
     const referer = episodeInfo?.headers?.Referer;
     const encodedUrl = encodeURIComponent(firstSourceUrl);
@@ -265,14 +279,10 @@ function AnimeTealPlayer({
     const proxySubtitleUrl = (rawUrl: string) => {
       if (!rawUrl) return rawUrl;
 
-      try {
-        const existing = new URL(rawUrl);
-        if (existing.pathname === "/api/v1/proxy") {
-          return `${existing.pathname}${existing.search}`;
-        }
-      } catch {
-        if (rawUrl.startsWith("/api/v1/proxy?")) return rawUrl;
-      }
+      // Preserve opaque Aniraku links as absolute API URLs. Returning only
+      // pathname + query would incorrectly send them to animeteal.vercel.app.
+      const anirakuProxyUrl = normalizeAnirakuProxyUrl(rawUrl);
+      if (anirakuProxyUrl) return anirakuProxyUrl;
 
       if (usesAnirakuProxy) {
         const params = new URLSearchParams({ url: rawUrl });
@@ -280,7 +290,7 @@ function AnimeTealPlayer({
         if (requestHeaders && Object.keys(requestHeaders).length > 0) {
           params.set("headers", JSON.stringify(requestHeaders));
         }
-        return `/api/v1/proxy?${params.toString()}`;
+        return `${ANIRAKU_API_BASE_URL}/api/v1/proxy?${params.toString()}`;
       }
 
       const referer = episodeInfo?.headers?.Referer;
