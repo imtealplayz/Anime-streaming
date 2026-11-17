@@ -4,6 +4,45 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
+const ANIRAKU_API_BASE_URL = "https://api.aniraku.tech";
+
+function absoluteAnirakuMediaUrl(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  // The backend now returns opaque media links as relative /api/v1/proxy?k=…
+  // URLs. Root them at the backend host before returning them to the player.
+  return value.startsWith("/api/v1/")
+    ? `${ANIRAKU_API_BASE_URL}${value}`
+    : value;
+}
+
+function normalizeAnirakuServers(payload: unknown[]) {
+  return payload.map((entry) => {
+    if (!entry || typeof entry !== "object") return entry;
+    const server = entry as Record<string, unknown>;
+    if (!Array.isArray(server.sources)) return server;
+
+    const sources = server.sources.map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      const source = entry as Record<string, unknown>;
+      const subtitles = Array.isArray(source.subtitles)
+        ? source.subtitles.map((entry) => {
+            if (!entry || typeof entry !== "object") return entry;
+            const track = entry as Record<string, unknown>;
+            return { ...track, url: absoluteAnirakuMediaUrl(track.url) };
+          })
+        : source.subtitles;
+
+      return {
+        ...source,
+        url: absoluteAnirakuMediaUrl(source.url),
+        ...(Array.isArray(source.subtitles) ? { subtitles } : {}),
+      };
+    });
+
+    return { ...server, sources };
+  });
+}
+
 export async function GET(request: NextRequest) {
   const animeId = request.nextUrl.searchParams.get("animeId") || "";
   const episode = request.nextUrl.searchParams.get("episode") || "";
@@ -63,6 +102,7 @@ export async function GET(request: NextRequest) {
       if (!Array.isArray(payload)) {
         throw new Error("Expected the Aniraku server list to be an array.");
       }
+      const normalizedPayload = normalizeAnirakuServers(payload);
     } catch {
       return NextResponse.json(
         { error: "Aniraku returned malformed server-list JSON." },
@@ -70,12 +110,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return new NextResponse(body, {
+    return NextResponse.json(normalizedPayload, {
       status: 200,
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
+      headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upstream stream discovery failed.";
