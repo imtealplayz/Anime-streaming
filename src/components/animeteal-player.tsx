@@ -40,7 +40,12 @@ function normalizeAnirakuProxyUrl(value: string): string | null {
       isAnirakuHost &&
       url.pathname === "/api/v1/proxy"
     ) {
-      return url.toString();
+      // Browser media requests originate from animeteal.vercel.app. Aniraku's
+      // proxy edge rejects that referrer, even though the minted media token is
+      // valid. Relay the master playlist through AnimeTeal's same-origin proxy;
+      // it supplies Aniraku's required referrer and rewrites every nested
+      // playlist, key and segment URL back through the same relay.
+      return `/api/proxy?url=${encodeURIComponent(url.toString())}&referer=${encodeURIComponent("https://aniraku.tech/")}`;
     }
   } catch {
     // Leave non-URL provider links to the legacy proxy path.
